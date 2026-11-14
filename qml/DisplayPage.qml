@@ -84,7 +84,7 @@ SettingsPage {
     }
 
     SettingsCard {
-        icon: "preferences-desktop-display-randr|video-display"
+        icon: "fl:desktop_pulse_20_regular"
         title: "Multiple displays"
         description: "Choose the presentation mode for your displays"
         enabled: page.outs.length > 1
@@ -104,7 +104,7 @@ SettingsPage {
 
     SettingsCard {
         visible: Backend.brightnessAvailable
-        icon: "brightness-high|display-brightness|video-display-brightness"
+        icon: "fl:brightness_high_20_regular"
         title: "Brightness"
         description: "Adjust the brightness of the built-in display"
         FluentSlider {
@@ -115,7 +115,7 @@ SettingsPage {
         }
     }
     SettingsCard {
-        icon: "redshift-status-on|weather-clear-night|night-light"
+        icon: "fl:weather_moon_20_regular"
         title: "Night light"
         description: "Use warmer colors to help block blue light"
         clickable: true
@@ -126,14 +126,14 @@ SettingsPage {
         }
     }
     SettingsCard {
-        icon: "color-profile|color-management"
+        icon: "fl:color_background_20_regular"
         title: "Color profile"
         description: "Adjust the way colors appear on your screen"
         clickable: true
         onClicked: Backend.openKcm("kcm_colord")
     }
     SettingsCard {
-        icon: "video-display|monitor"
+        icon: "fl:hdr_20_regular"
         title: "HDR"
         description: page.cur && page.cur.hdrSupported ? "Brighter, more vivid picture in HDR content"
                                                        : "Not supported on this display"
@@ -148,7 +148,7 @@ SettingsPage {
     SectionHeader { text: "Scale & layout" }
 
     SettingsCard {
-        icon: "zoom-fit-best|zoom-in"
+        icon: "fl:resize_20_regular"
         title: "Scale"
         description: "Change the size of text, apps, and other items"
         enabled: !!page.cur
@@ -159,7 +159,7 @@ SettingsPage {
         }
     }
     SettingsCard {
-        icon: "view-fullscreen|transform-scale"
+        icon: "fl:full_screen_maximize_20_regular"
         title: "Display resolution"
         description: "Adjust the resolution to fit your connected display"
         enabled: !!page.cur
@@ -170,7 +170,7 @@ SettingsPage {
         }
     }
     SettingsCard {
-        icon: "object-rotate-right|transform-rotate"
+        icon: "fl:rotate_right_20_regular"
         title: "Display orientation"
         enabled: !!page.cur
         FluentCombo {
@@ -180,7 +180,7 @@ SettingsPage {
         }
     }
     SettingsCard {
-        icon: "chronometer|clock"
+        icon: "fl:top_speed_20_regular"
         title: "Refresh rate"
         description: "A higher rate gives smoother motion"
         enabled: !!page.cur
@@ -195,14 +195,14 @@ SettingsPage {
     SectionHeader { text: "Related settings" }
 
     SettingsCard {
-        icon: "preferences-desktop-display|video-display"
+        icon: "fl:desktop_20_regular"
         title: "Advanced display"
         description: "Display information, positions, overscan"
         clickable: true
         onClicked: Backend.openKcm("kcm_kscreen")
     }
     SettingsCard {
-        icon: "hwinfo|kinfocenter|cpu"
+        icon: "fl:developer_board_20_regular"
         title: "Graphics"
         description: "Graphics hardware and driver information"
         clickable: true

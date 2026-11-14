@@ -59,6 +59,7 @@ Item {
             Layout.alignment: Qt.AlignTop
             isClose: true
             lines: Theme.gClose
+            topRightRadius: bar.window && bar.window.cornerRadius ? bar.window.cornerRadius : 0
             onClicked: bar.window.close()
         }
     }

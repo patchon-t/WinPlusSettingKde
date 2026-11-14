@@ -13,12 +13,12 @@ Item {
     Rectangle {  // default "person" avatar
         anchors.fill: parent
         radius: width / 2
-        color: Theme.dark ? "#3c3c3c" : "#d9d9d9"
+        color: Theme.dark ? "#3c3c3c" : "#c6c6c6"
         visible: img.status !== Image.Ready
         Icon {
             anchors.centerIn: parent
-            name: "user-identity|im-user|avatar-default"
-            size: Math.round(av.size * 0.5)
+            name: "fl:person_48_filled@" + (Theme.dark ? "9e9e9e" : "ffffff")
+            size: Math.round(av.size * 0.56)
         }
     }
     Image {

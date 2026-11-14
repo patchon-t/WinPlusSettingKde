@@ -131,7 +131,7 @@ SettingsPage {
 
     // ---------------------------------------------------------- settings
     SettingsCard {
-        icon: "preferences-desktop-color|color-management"
+        icon: "fl:dark_theme_20_regular"
         title: "Choose your mode"
         description: "Change the colors that appear in Plasma and your apps"
         FluentCombo {
@@ -142,7 +142,7 @@ SettingsPage {
     }
 
     SettingsCard {
-        icon: "preferences-desktop-effects|transform-shear"
+        icon: "fl:transparency_square_20_regular"
         title: "Transparency effects"
         description: "Windows and surfaces appear translucent"
         FluentToggle {
@@ -152,7 +152,7 @@ SettingsPage {
     }
 
     ExpanderCard {
-        icon: "color-picker|preferences-desktop-color"
+        icon: "fl:color_20_regular"
         title: "Accent color"
         expanded: true
         headerControls: [

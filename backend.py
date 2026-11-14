@@ -141,6 +141,8 @@ class Backend(QObject):
         self._plasma_version = ""
         self._wallpaper = self._read_wallpaper()
         self._wallpapers = self._scan_wallpapers()
+        if not self._wallpaper and self._wallpapers:
+            self._wallpaper = self._wallpapers[0]["path"]
         self._raw_outputs: dict[str, dict] = {}
         self._outputs = self._read_outputs()
         self._bright, self._bright_max = self._read_brightness()
@@ -200,19 +202,29 @@ class Backend(QObject):
         return rgb_to_hex(acc, "#0067c0")
 
     def _read_wallpaper(self) -> str:
+        """Current desktop wallpaper as a local image path ('' if unknown)."""
         f = HOME / ".config" / "plasma-org.kde.plasma.desktop-appletsrc"
         try:
             txt = f.read_text(errors="replace")
         except OSError:
             return ""
-        m = re.search(r"^Image=(.+)$", txt, re.M)
-        if not m:
-            return ""
-        p = Path(m.group(1).strip().removeprefix("file://"))
-        if p.is_dir():
-            img = best_image(p)
-            return str(img) if img else ""
-        return str(p) if p.exists() else ""
+        for value in re.findall(r"^Image=(.+)$", txt, re.M):
+            value = value.strip()
+            if value.startswith("file:"):
+                value = QUrl(value).toLocalFile()          # handles %20 etc.
+            p = Path(value)
+            if not p.is_absolute():                        # package name, e.g. "Next"
+                for root in (HOME / ".local/share/wallpapers", Path("/usr/share/wallpapers")):
+                    if (root / value).exists():
+                        p = root / value
+                        break
+            if p.is_dir():
+                img = best_image(p)
+                if img:
+                    return str(img)
+            elif p.is_file():
+                return str(p)
+        return ""
 
     def _scan_wallpapers(self) -> list:
         out = []
@@ -606,24 +618,47 @@ class Backend(QObject):
 
 
 # ---------------------------------------------------------------- icons
+CACHE_DIR = HOME / ".cache" / "WinPlusSettingKde" / "icons"
+
+
 class IconProvider(QQuickImageProvider):
     """image://icon/<name>[|fallback...]?<d|l>
 
-    Looks in qml/icons/<name>.svg first (drop Fluent SVGs there), then the
-    system icon theme (breeze / breeze-dark picked from the app's dark mode).
+    name = "fl:<stem>[@rrggbb]"  bundled Fluent SVG from qml/icons/<stem>.svg.
+           *_color icons keep their own colors; mono icons get the tint, or the
+           theme text color (dark/light) when no tint is given.
+    name = anything else          looked up in the system icon theme.
     """
 
     def __init__(self, backend: Backend):
         super().__init__(PIXMAP)
         self._b = backend
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _fluent(self, spec: str, dark: bool) -> QIcon:
+        stem, _, tint = spec.partition("@")
+        src = ICON_DIR / f"{stem}.svg"
+        if not src.exists():
+            return QIcon()
+        if stem.endswith("_color"):
+            return QIcon(str(src))
+        color = "#" + tint if tint else ("#ffffff" if dark else "#1b1b1b")
+        out = CACHE_DIR / f"{stem}-{color[1:]}.svg"
+        if not out.exists():
+            svg = src.read_text().replace("<svg ", f'<svg fill="{color}" ', 1)
+            out.write_text(svg)
+        return QIcon(str(out))
 
     def requestPixmap(self, id_: str, size: QSize, requested: QSize) -> QPixmap:
         names, _, mode = id_.partition("?")
+        dark = mode == "d"
         px = requested.width() if requested.width() > 0 else 32
-        QIcon.setThemeName(self._b.icon_theme(mode == "d"))
         for name in names.split("|"):
-            local = ICON_DIR / f"{name}.svg"
-            icon = QIcon(str(local)) if local.exists() else QIcon.fromTheme(name)
+            if name.startswith("fl:"):
+                icon = self._fluent(name[3:], dark)
+            else:
+                QIcon.setThemeName(self._b.icon_theme(dark))
+                icon = QIcon.fromTheme(name)
             if not icon.isNull():
                 return icon.pixmap(QSize(px, px))
         pm = QPixmap(px, px)

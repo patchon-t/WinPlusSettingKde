@@ -70,13 +70,13 @@ SettingsPage {
         }
         Item { Layout.fillWidth: true }
         StatusTile {
-            icon: Backend.networkType === "wifi" ? "network-wireless" : "network-wired"
+            icon: Backend.networkType === "wifi" ? "fl:wifi_1_20_regular" : "fl:desktop_20_regular"
             title: Backend.networkName.length ? Backend.networkName : "Not connected"
             subtitle: Backend.networkName.length ? "Connected" : ""
             onClicked: Backend.openKcm("kcm_networkmanagement")
         }
         StatusTile {
-            icon: "system-software-update|update-none"
+            icon: "fl:arrow_sync_20_color"
             title: "System updates"
             subtitle: "Open Discover"
             onClicked: Backend.runCommand(["plasma-discover", "--mode", "Update"])
@@ -99,9 +99,9 @@ SettingsPage {
             HomeCard {
                 title: "Recommended settings"
                 subtitle: "Recent and commonly used settings"
-                HomeRow { icon: "drive-harddisk"; title: "Storage"; onClicked: Backend.runCommand(["filelight", "/"]) }
-                HomeRow { icon: "preferences-desktop-theme-global|preferences-desktop-theme"; title: "Themes"; onClicked: Backend.openKcm("kcm_lookandfeel") }
-                HomeRow { icon: "video-display"; title: "Display"; onClicked: Router.open("DisplayPage.qml", {}) }
+                HomeRow { icon: "fl:storage_20_regular"; title: "Storage"; onClicked: Backend.runCommand(["filelight", "/"]) }
+                HomeRow { icon: "fl:paint_brush_20_regular"; title: "Themes"; onClicked: Backend.openKcm("kcm_lookandfeel") }
+                HomeRow { icon: "fl:desktop_20_regular"; title: "Display"; onClicked: Router.open("DisplayPage.qml", {}) }
             }
 
             HomeCard {
@@ -145,7 +145,7 @@ SettingsPage {
                     }
                 }
                 HomeRow {
-                    icon: "preferences-desktop-color|color-management"
+                    icon: "fl:dark_theme_20_regular"
                     title: "Color mode"
                     clickable: false
                     FluentCombo {
@@ -155,7 +155,7 @@ SettingsPage {
                     }
                 }
                 HomeRow {
-                    icon: "preferences-desktop-color|color-management"
+                    icon: "fl:color_20_regular"
                     title: "Colors"
                     subtitle: "Accent color, transparency effects"
                     onClicked: Router.open("ColorsPage.qml", {})
@@ -173,7 +173,7 @@ SettingsPage {
                 title: "Bluetooth devices"
                 subtitle: "Manage, add, and remove devices"
                 HomeRow {
-                    icon: "preferences-system-bluetooth|bluetooth"
+                    icon: "fl:bluetooth_20_regular"
                     title: "Bluetooth"
                     subtitle: Backend.bluetoothAvailable ? "Discoverable as \"" + Backend.hostname + "\"" : "No Bluetooth adapter found"
                     clickable: false
@@ -191,7 +191,7 @@ SettingsPage {
             }
 
             HomeCard {
-                icon: "drive-harddisk"
+                icon: "fl:hard_drive_20_regular"
                 title: "Storage"
                 subtitle: Backend.storageText
                 Rectangle {
@@ -218,7 +218,7 @@ SettingsPage {
             }
 
             HomeCard {
-                icon: "start-here-kde|distributor-logo|kde"
+                icon: "start-here-kde|distributor-logo|fl:info_20_regular"
                 title: Backend.osName
                 subtitle: (Backend.plasmaVersion.length ? "KDE Plasma " + Backend.plasmaVersion + "  ·  " : "")
                           + "Kernel " + Backend.kernel

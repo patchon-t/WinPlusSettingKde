@@ -15,10 +15,11 @@ ApplicationWindow {
     visible: true
     title: "Settings"
     flags: Qt.Window | Qt.FramelessWindowHint
-    color: Theme.windowBg
+    color: "transparent"
 
     property int navIndex: 0
-    readonly property bool maximized: visibility === Window.Maximized
+    readonly property bool maximized: visibility === Window.Maximized || visibility === Window.FullScreen
+    readonly property int cornerRadius: maximized ? 0 : 8
 
     function goTo(i) {
         navIndex = i
@@ -39,13 +40,21 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.Back, "Alt+Left"]; onActivated: Router.back() }
     Shortcut { sequence: "Ctrl+F"; onActivated: nav.focusSearch() }
 
-    // Fake Mica: warm tint fading in from the right, like the real thing
+    // Window surface: rounded 8px like Win11, square when maximized
     Rectangle {
+        id: surface
         anchors.fill: parent
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 1.0; color: Theme.micaTint }
+        radius: win.cornerRadius
+        color: Theme.windowBg
+        // Fake Mica: warm tint fading in from the right
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: "transparent" }
+                GradientStop { position: 1.0; color: Theme.micaTint }
+            }
         }
     }
 
@@ -98,9 +107,10 @@ ApplicationWindow {
         }
     }
 
-    // 1px window outline
+    // 1px window outline (follows the rounded corners)
     Rectangle {
         anchors.fill: parent
+        radius: win.cornerRadius
         color: "transparent"
         border.color: Theme.windowBorder
         visible: !win.maximized

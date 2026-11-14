@@ -35,7 +35,7 @@ TextField {
             anchors.right: parent.right
             anchors.rightMargin: 10
             anchors.verticalCenter: parent.verticalCenter
-            name: "search|edit-find"
+            name: "fl:search_20_regular"
             size: 14
             opacity: 0.8
         }

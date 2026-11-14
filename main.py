@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QCoreApplication, QUrl
 from PySide6.QtGui import QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterSingletonInstance
+from PySide6.QtQuick import QQuickWindow
 from PySide6.QtQuickControls2 import QQuickStyle
 
 from backend import Backend, IconProvider
@@ -32,6 +33,7 @@ def pick_font():
 
 def main():
     QQuickStyle.setStyle("Basic")  # fully restylable controls
+    QQuickWindow.setDefaultAlphaBuffer(True)  # transparent window -> rounded corners
     QCoreApplication.setOrganizationName("patchon-t")
     QCoreApplication.setApplicationName("WinPlusSettingKde")
 

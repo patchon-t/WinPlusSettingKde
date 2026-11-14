@@ -42,14 +42,16 @@ Search (Ctrl+F) covers the nav, every list entry and the settings inside the cus
 - **Brightness** uses the PowerDevil D-Bus API. If your Plasma version doesn't expose it, the card hides itself.
 - **Automatic accent** writes `accentColorFromWallpaper`; Plasma may need a re-login to pick it up.
 - **Mica** is faked with a tinted gradient. There's no real KWin blur-behind yet.
+- **Rounded corners** are drawn by the app (transparent window). KWin doesn't add a shadow to it.
 - The window is frameless (own title bar). Resizing works from the edges.
 
 ## Making it look more 1:1
 
 - **Font:** put Segoe UI Variable in `fonts/` (see `fonts/README.md`).
-- **Icons:** drop SVGs named after the icon in `qml/icons/` (for example `video-display.svg`) and
-  they override the theme icon. [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons)
-  are MIT-licensed.
+- **Icons:** the app ships Microsoft's [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons)
+  (MIT) in `qml/icons/`, so it looks the same whatever icon theme you use. Use one in QML as
+  `"fl:<file name without .svg>"`, optionally with a fixed tint: `"fl:bluetooth_20_filled@0078d4"`.
+  Mono icons follow light/dark automatically.
 
 ## Layout
 
