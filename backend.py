@@ -170,8 +170,11 @@ class Backend(QObject):
 
         def finished(code, _status):
             state["done"] = True
-            out = bytes(p.readAllStandardOutput()).decode(errors="replace")
-            p.deleteLater()
+            try:
+                out = bytes(p.readAllStandardOutput()).decode(errors="replace")
+                p.deleteLater()
+            except RuntimeError:   # QProcess already destroyed (app is closing)
+                return
             if callback:
                 callback(code == 0, out)
 

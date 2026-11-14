@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import "."
 
 // Icon via the Python image provider.
@@ -10,8 +11,9 @@ Image {
     property int size: 16
     width: size
     height: size
-    implicitWidth: size      // without these, Layouts use the image's
-    implicitHeight: size     // native size -> giant icons
+    // Image's implicitWidth/Height are read-only, so tell Layouts the size here
+    Layout.preferredWidth: size
+    Layout.preferredHeight: size
     sourceSize: Qt.size(size * 2, size * 2)
     source: name.length ? "image://icon/" + name + "?" + (Theme.dark ? "d" : "l") : ""
     fillMode: Image.PreserveAspectFit
