@@ -68,17 +68,21 @@ Search (Ctrl+F) covers the nav, every list entry and the settings inside the cus
 
 ```
 main.py                 app entry, font pick, QML engine
-backend.py              all Plasma integration (properties + slots for QML)
+backend/                all Plasma integration (properties + slots for QML)
+  __init__.py           Backend = CoreMixin + one mixin per section
+  core.py / util.py     async processes, debounce, polling, kread/kwrite/dbus helpers
+  system.py, bluetooth.py, network.py, ...   one file per Settings section
 qml/
   Main.qml              window, title bar, nav, page stack
   Theme.qml             Fluent design tokens, light + dark
-  Data.js               nav tree + list pages + search index
+  Data.js               merges data/<section>.js (nav entries + search keywords)
   SettingsCard / ExpanderCard / HomeCard / Fluent*   reusable Win11 components
-  HomePage / KcmListPage / DisplayPage / ColorsPage  pages
+  pages/<section>/      the pages of each section (home, system, bluetooth, ...)
 ```
 
-Adding a page: create `qml/MyPage.qml` starting with `SettingsPage { crumbs: ["System", "My page"] ... }`,
-then point an entry in `Data.js` at it with `page: "MyPage.qml"`.
+Adding a page: create `qml/pages/<section>/MyPage.qml` starting with `import "../.."` and
+`SettingsPage { crumbs: ["System", "My page"] ... }`, then point an entry in
+`qml/data/<section>.js` at it with `page: P + "MyPage.qml"`.
 
 ## License
 
