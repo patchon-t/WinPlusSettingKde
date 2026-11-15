@@ -12,7 +12,7 @@ Item {
     default property alias content: col.data
 
     PageHeader {
-        id: header
+        id: pageHeader
         crumbs: page.crumbs
         x: page.sidePadding
         y: 4
@@ -20,7 +20,7 @@ Item {
 
     Flickable {
         id: flick
-        anchors.top: header.bottom
+        anchors.top: pageHeader.bottom
         anchors.topMargin: 20
         anchors.left: parent.left
         anchors.right: parent.right

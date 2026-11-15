@@ -61,15 +61,22 @@ def spawn(args) -> bool:
         return False
 
 
+def _groups(group: str) -> list:
+    out = []
+    for g in group.split("/"):          # "AC/Display" -> --group AC --group Display
+        out += ["--group", g]
+    return out
+
+
 def kread(file: str, group: str, key: str, default: str = "") -> str:
     if not has("kreadconfig6"):
         return default
-    return run(["kreadconfig6", "--file", file, "--group", group,
+    return run(["kreadconfig6", "--file", file, *_groups(group),
                 "--key", key, "--default", default]) or default
 
 
 def kwrite(file: str, group: str, key: str, value: str, kind: str | None = None):
-    args = ["kwriteconfig6", "--file", file, "--group", group, "--key", key]
+    args = ["kwriteconfig6", "--file", file, *_groups(group), "--key", key]
     if kind:
         args += ["--type", kind]
     run(args + [value])
@@ -126,6 +133,12 @@ class Backend(QObject):
     wallpaperChanged = Signal()
     outputsChanged = Signal()
     brightnessChanged = Signal()
+    soundChanged = Signal()
+    bluetoothDevicesChanged = Signal()
+    wifiChanged = Signal()
+    wifiResult = Signal(bool, str)      # ok, message (shown to the user)
+    powerChanged = Signal()
+    timeChanged = Signal()
 
     def __init__(self):
         super().__init__()
@@ -156,6 +169,23 @@ class Backend(QObject):
         self._poll = QTimer(self, interval=5000)
         self._poll.timeout.connect(self._poll_tick)
         self._poll.start()
+        # state for the native pages (filled by their refresh slots)
+        self._sinks, self._sources = [], []
+        self._sink_idx = self._source_idx = -1
+        self._out_vol = self._in_vol = 0
+        self._out_mute = self._in_mute = False
+        self._bt_devices = []
+        self._wifi_on, self._wifi_list, self._wifi_iface, self._wifi_known = False, [], "", set()
+        self._wifi_busy = False
+        self._bat_present, self._bat_pct, self._bat_status = False, 0, ""
+        self._profiles, self._profile_idx = [], -1
+        self._timezone, self._ntp, self._timezones = "", False, []
+
+        # Coalesce rapid slider changes into one command per key
+        self._pending = {}
+        self._debounce = QTimer(self, singleShot=True, interval=50)
+        self._debounce.timeout.connect(self._flush_pending)
+
         self._poll_tick()
         self._async(["plasmashell", "--version"], self._on_plasma_version)
 
@@ -618,6 +648,369 @@ class Backend(QObject):
              "/org/kde/Solid/PowerManagement/Actions/BrightnessControl",
              "org.kde.Solid.PowerManagement.Actions.BrightnessControl.setBrightness",
              f"int32:{self._bright}")
+
+
+    # ======================================================== native pages
+    def _later(self, key: str, args: list):
+        self._pending[key] = args
+        self._debounce.start()
+
+    def _flush_pending(self):
+        for args in self._pending.values():
+            spawn(args)
+        self._pending.clear()
+
+    # ---------------------------------------------------- Sound (PipeWire/Pulse via pactl)
+    @Slot()
+    def refreshSound(self):
+        def devices(kind):
+            raw = run(["pactl", "-f", "json", "list", kind])
+            try:
+                items = json.loads(raw) if raw else []
+            except json.JSONDecodeError:
+                items = []
+            out = []
+            for d in items:
+                name = d.get("name", "")
+                if not name or name.endswith(".monitor"):
+                    continue
+                out.append({"name": name, "desc": d.get("description") or name})
+            return out
+
+        def vol(kind):
+            m = re.search(r"(\d+)%", run(["pactl", f"get-{kind}-volume", f"@DEFAULT_{kind.upper()}@"]))
+            return int(m.group(1)) if m else 0
+
+        self._sinks, self._sources = devices("sinks"), devices("sources")
+        dsink, dsrc = run(["pactl", "get-default-sink"]), run(["pactl", "get-default-source"])
+        self._sink_idx = next((i for i, d in enumerate(self._sinks) if d["name"] == dsink), -1)
+        self._source_idx = next((i for i, d in enumerate(self._sources) if d["name"] == dsrc), -1)
+        self._out_vol, self._in_vol = vol("sink"), vol("source")
+        self._out_mute = run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"]).endswith("yes")
+        self._in_mute = run(["pactl", "get-source-mute", "@DEFAULT_SOURCE@"]).endswith("yes")
+        self.soundChanged.emit()
+
+    sinks = Property("QVariantList", lambda s: [d["desc"] for d in s._sinks], notify=soundChanged)
+    sources = Property("QVariantList", lambda s: [d["desc"] for d in s._sources], notify=soundChanged)
+    sinkIndex = Property(int, lambda s: s._sink_idx, notify=soundChanged)
+    sourceIndex = Property(int, lambda s: s._source_idx, notify=soundChanged)
+    outputVolume = Property(int, lambda s: s._out_vol, notify=soundChanged)
+    inputVolume = Property(int, lambda s: s._in_vol, notify=soundChanged)
+    outputMuted = Property(bool, lambda s: s._out_mute, notify=soundChanged)
+    inputMuted = Property(bool, lambda s: s._in_mute, notify=soundChanged)
+    soundAvailable = Property(bool, lambda s: has("pactl"), constant=True)
+
+    @Slot(int)
+    def setOutputDevice(self, i: int):
+        if 0 <= i < len(self._sinks):
+            self._async(["pactl", "set-default-sink", self._sinks[i]["name"]], lambda *_: self.refreshSound())
+
+    @Slot(int)
+    def setInputDevice(self, i: int):
+        if 0 <= i < len(self._sources):
+            self._async(["pactl", "set-default-source", self._sources[i]["name"]], lambda *_: self.refreshSound())
+
+    @Slot(int)
+    def setOutputVolume(self, v: int):
+        self._out_vol = v
+        self.soundChanged.emit()
+        self._later("outvol", ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{v}%"])
+
+    @Slot(int)
+    def setInputVolume(self, v: int):
+        self._in_vol = v
+        self.soundChanged.emit()
+        self._later("invol", ["pactl", "set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
+
+    @Slot(bool)
+    def setOutputMuted(self, m: bool):
+        self._out_mute = m
+        self.soundChanged.emit()
+        spawn(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1" if m else "0"])
+
+    @Slot(bool)
+    def setInputMuted(self, m: bool):
+        self._in_mute = m
+        self.soundChanged.emit()
+        spawn(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1" if m else "0"])
+
+    # ---------------------------------------------------- Bluetooth devices (bluetoothctl)
+    @staticmethod
+    def _parse_bt(out: str) -> list:
+        res = []
+        for line in out.splitlines():
+            m = re.match(r"Device\s+([0-9A-F:]{17})\s+(.*)", line.strip())
+            if m:
+                res.append((m.group(1), m.group(2).strip()))
+        return res
+
+    @Slot()
+    def refreshBluetoothDevices(self):
+        def got_paired(_ok, out):
+            paired = self._parse_bt(out)
+
+            def got_connected(_ok2, out2):
+                conn = {mac for mac, _ in self._parse_bt(out2)}
+                self._bt_devices = [{"mac": m, "name": n, "connected": m in conn}
+                                    for m, n in sorted(paired, key=lambda d: (d[0] not in conn, d[1].lower()))]
+                self.bluetoothDevicesChanged.emit()
+
+            self._async(["bluetoothctl", "devices", "Connected"], got_connected, 4000)
+
+        self._async(["bluetoothctl", "devices", "Paired"], got_paired, 4000)
+
+    bluetoothDevices = Property("QVariantList", lambda s: s._bt_devices, notify=bluetoothDevicesChanged)
+
+    def _bt_action(self, *args):
+        self._async(["bluetoothctl", *args], lambda *_: self.refreshBluetoothDevices(), 20000)
+
+    @Slot(str)
+    def bluetoothConnect(self, mac: str):
+        self._bt_action("connect", mac)
+
+    @Slot(str)
+    def bluetoothDisconnect(self, mac: str):
+        self._bt_action("disconnect", mac)
+
+    @Slot(str)
+    def bluetoothRemove(self, mac: str):
+        self._bt_action("remove", mac)
+
+    # ---------------------------------------------------- Wi-Fi (NetworkManager via nmcli)
+    @staticmethod
+    def _nm_fields(line: str) -> list:
+        return [f.replace("\\:", ":") for f in re.split(r"(?<!\\):", line)]
+
+    @Slot()
+    def refreshWifi(self):
+        self._scan_wifi(False)
+
+    @Slot()
+    def rescanWifi(self):
+        self._scan_wifi(True)
+
+    def _scan_wifi(self, rescan: bool):
+        def got_radio(_ok, out):
+            self._wifi_on = out.strip() == "enabled"
+            self.wifiChanged.emit()
+
+        def got_devs(_ok, out):
+            for line in out.splitlines():
+                f = self._nm_fields(line)
+                if len(f) >= 2 and f[1] == "wifi":
+                    self._wifi_iface = f[0]
+                    break
+
+        def got_known(_ok, out):
+            self._wifi_known = {f[0] for f in map(self._nm_fields, out.splitlines())
+                                if len(f) >= 2 and f[1] == "802-11-wireless"}
+
+        def got_list(_ok, out):
+            best = {}
+            for line in out.splitlines():
+                f = self._nm_fields(line)
+                if len(f) < 4 or not f[1]:
+                    continue
+                ssid = f[1]
+                net = {"ssid": ssid, "signal": int(f[2] or 0), "secure": bool(f[3].strip()) and f[3] != "--",
+                       "active": f[0] == "*", "known": ssid in self._wifi_known}
+                old = best.get(ssid)
+                if not old or net["active"] or (not old["active"] and net["signal"] > old["signal"]):
+                    best[ssid] = net
+            self._wifi_list = sorted(best.values(), key=lambda n: (not n["active"], -n["signal"]))
+            self.wifiChanged.emit()
+
+        self._async(["nmcli", "-t", "-f", "WIFI", "radio"], got_radio, 3000)
+        self._async(["nmcli", "-t", "-f", "DEVICE,TYPE", "device"], got_devs, 3000)
+        self._async(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"], got_known, 3000)
+        self._async(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list",
+                     "--rescan", "yes" if rescan else "no"], got_list, 20000)
+
+    wifiEnabled = Property(bool, lambda s: s._wifi_on, notify=wifiChanged)
+    wifiNetworks = Property("QVariantList", lambda s: s._wifi_list, notify=wifiChanged)
+    wifiBusy = Property(bool, lambda s: s._wifi_busy, notify=wifiChanged)
+
+    @Slot(bool)
+    def setWifiEnabled(self, on: bool):
+        self._wifi_on = on
+        self.wifiChanged.emit()
+        self._async(["nmcli", "radio", "wifi", "on" if on else "off"],
+                    lambda *_: QTimer.singleShot(1500, self.refreshWifi))
+
+    @Slot(str, str)
+    def wifiConnect(self, ssid: str, password: str):
+        if ssid in self._wifi_known and not password:
+            args = ["nmcli", "connection", "up", "id", ssid]
+        else:
+            args = ["nmcli", "device", "wifi", "connect", ssid]
+            if password:
+                args += ["password", password]
+        self._wifi_busy = True
+        self.wifiChanged.emit()
+
+        def done(ok, out):
+            self._wifi_busy = False
+            self.wifiResult.emit(ok, f"Connected to {ssid}" if ok else
+                                 f"Couldn't connect to {ssid}. Check the password and try again.")
+            self.refreshWifi()
+            self._poll_tick()
+
+        self._async(args, done, 45000)
+
+    @Slot()
+    def wifiDisconnect(self):
+        if self._wifi_iface:
+            self._async(["nmcli", "device", "disconnect", self._wifi_iface],
+                        lambda *_: (self.refreshWifi(), self._poll_tick()))
+
+    @Slot(str)
+    def wifiForget(self, ssid: str):
+        self._async(["nmcli", "connection", "delete", "id", ssid], lambda *_: self.refreshWifi())
+
+    # ---------------------------------------------------- Power & battery
+    PROFILE_LABELS = {"power-saver": "Best power efficiency", "balanced": "Balanced",
+                      "performance": "Best performance"}
+
+    @Slot()
+    def refreshPower(self):
+        bats = sorted(Path("/sys/class/power_supply").glob("BAT*"))
+        self._bat_present = bool(bats)
+        if bats:
+            try:
+                self._bat_pct = int((bats[0] / "capacity").read_text().strip())
+                self._bat_status = (bats[0] / "status").read_text().strip()
+            except (OSError, ValueError):
+                self._bat_present = False
+        listing = run(["powerprofilesctl", "list"])
+        found = re.findall(r"^\*?\s*([a-z-]+):\s*$", listing, re.M)
+        order = ["power-saver", "balanced", "performance"]
+        self._profiles = [p for p in order if p in found]
+        cur = run(["powerprofilesctl", "get"])
+        self._profile_idx = self._profiles.index(cur) if cur in self._profiles else -1
+        self.powerChanged.emit()
+
+    batteryPresent = Property(bool, lambda s: s._bat_present, notify=powerChanged)
+    batteryPercent = Property(int, lambda s: s._bat_pct, notify=powerChanged)
+    batteryStatus = Property(str, lambda s: s._bat_status, notify=powerChanged)
+    powerProfiles = Property("QVariantList", lambda s: [s.PROFILE_LABELS[p] for p in s._profiles],
+                             notify=powerChanged)
+    powerProfileIndex = Property(int, lambda s: s._profile_idx, notify=powerChanged)
+
+    @Slot(int)
+    def setPowerProfile(self, i: int):
+        if 0 <= i < len(self._profiles):
+            self._profile_idx = i
+            self.powerChanged.emit()
+            self._async(["powerprofilesctl", "set", self._profiles[i]], lambda *_: self.refreshPower())
+
+    # Screen off / sleep timeouts in PowerDevil (Plasma 6 powerdevilrc layout)
+    TIMEOUTS_MIN = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60, 120, 180, 240, 300, 0]  # 0 = never
+
+    @Slot(str, str, result=int)
+    def powerTimeoutIndex(self, profile: str, what: str) -> int:
+        group, enabled_key, sec_key = self._timeout_keys(profile, what)
+        if what == "screen":
+            if kread("powerdevilrc", group, enabled_key, "true") == "false":
+                return len(self.TIMEOUTS_MIN) - 1
+            default = "300" if profile == "Battery" else "600"
+        else:
+            if kread("powerdevilrc", group, enabled_key, "1") == "0":
+                return len(self.TIMEOUTS_MIN) - 1
+            default = "600" if profile == "Battery" else "900"
+        try:
+            minutes = int(kread("powerdevilrc", group, sec_key, default)) // 60
+        except ValueError:
+            minutes = 10
+        return min(range(len(self.TIMEOUTS_MIN) - 1), key=lambda i: abs(self.TIMEOUTS_MIN[i] - minutes))
+
+    @staticmethod
+    def _timeout_keys(profile: str, what: str):
+        if what == "screen":
+            return f"{profile}/Display", "TurnOffDisplayWhenIdle", "TurnOffDisplayIdleTimeoutSec"
+        return f"{profile}/SuspendAndShutdown", "AutoSuspendAction", "AutoSuspendIdleTimeoutSec"
+
+    @Slot(str, str, int)
+    def setPowerTimeout(self, profile: str, what: str, index: int):
+        group, enabled_key, sec_key = self._timeout_keys(profile, what)
+        minutes = self.TIMEOUTS_MIN[index]
+        if what == "screen":
+            kwrite("powerdevilrc", group, enabled_key, "false" if minutes == 0 else "true", "bool")
+        else:
+            kwrite("powerdevilrc", group, enabled_key, "0" if minutes == 0 else "1")
+        if minutes:
+            kwrite("powerdevilrc", group, sec_key, str(minutes * 60))
+        dbus("org.kde.Solid.PowerManagement", "/org/kde/Solid/PowerManagement",
+             "org.kde.Solid.PowerManagement.refreshStatus")
+
+    # ---------------------------------------------------- Date & time (timedatectl)
+    @Slot()
+    def refreshTime(self):
+        info = dict(line.split("=", 1) for line in run(["timedatectl", "show"]).splitlines() if "=" in line)
+        self._timezone = info.get("Timezone", "")
+        self._ntp = info.get("NTP", "no") == "yes"
+        if not self._timezones:
+            self._timezones = run(["timedatectl", "list-timezones"]).splitlines()
+        self.timeChanged.emit()
+
+    timezone = Property(str, lambda s: s._timezone, notify=timeChanged)
+    timezones = Property("QVariantList", lambda s: s._timezones, notify=timeChanged)
+    autoTime = Property(bool, lambda s: s._ntp, notify=timeChanged)
+
+    @Slot(str)
+    def setTimezone(self, tz: str):
+        self._async(["timedatectl", "set-timezone", tz], lambda *_: self.refreshTime(), 120000)
+
+    @Slot(bool)
+    def setAutoTime(self, on: bool):
+        self._ntp = on
+        self.timeChanged.emit()
+        self._async(["timedatectl", "set-ntp", "true" if on else "false"], lambda *_: self.refreshTime(), 120000)
+
+    # ---------------------------------------------------- About
+    @Property("QVariantList", constant=True)
+    def deviceSpecs(self):
+        def cpu():
+            try:
+                for line in Path("/proc/cpuinfo").read_text().splitlines():
+                    if line.startswith("model name"):
+                        return re.sub(r"\s+", " ", line.split(":", 1)[1]).strip()
+            except OSError:
+                pass
+            return os.uname().machine
+
+        def ram():
+            try:
+                kb = int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text()).group(1))
+                return f"{kb / 1024 / 1024:.1f} GB"
+            except (OSError, AttributeError):
+                return ""
+
+        arch = os.uname().machine
+        return [
+            {"k": "Device name", "v": socket.gethostname()},
+            {"k": "Model", "v": self.deviceModel},
+            {"k": "Processor", "v": cpu()},
+            {"k": "Installed RAM", "v": ram()},
+            {"k": "System type", "v": f"64-bit operating system, {arch} processor" if arch.endswith("64")
+                                    else f"{arch} processor"},
+        ]
+
+    @Property("QVariantList", notify=aboutChanged)
+    def osSpecs(self):
+        from PySide6 import __version__ as pyside_version
+        from PySide6.QtCore import qVersion
+        return [
+            {"k": "Edition", "v": self.osName},
+            {"k": "KDE Plasma", "v": self._plasma_version or "unknown"},
+            {"k": "Kernel", "v": os.uname().release},
+            {"k": "Graphics platform", "v": os.environ.get("XDG_SESSION_TYPE", "").capitalize() or "unknown"},
+            {"k": "Qt", "v": f"{qVersion()} (PySide6 {pyside_version})"},
+        ]
+
+    @Slot(str)
+    def copyText(self, text: str):
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText(text)
 
 
 # ---------------------------------------------------------------- icons

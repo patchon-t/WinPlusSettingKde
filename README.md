@@ -26,12 +26,20 @@ It installs to `~/.local/share/WinPlusSettingKde` (no root).
 
 ## What works
 
-| Page | Real settings |
+| Page | Built in-app (no KDE window) |
 |---|---|
-| **Home** | wallpaper picker (`plasma-apply-wallpaperimage`), light/dark mode, Bluetooth toggle, rename PC (`pkexec hostnamectl`), disk usage, OS / Plasma / kernel info, network status |
-| **System → Display** | resolution, refresh rate, scale, orientation, HDR, multi-display mode (`kscreen-doctor`), night light (`kwinrc`), brightness (PowerDevil D-Bus), Identify |
-| **Personalization → Colors** | light/dark (`plasma-apply-colorscheme`), the Win11 48-color accent grid + recent + custom picker (`--accent-color`), automatic accent from wallpaper, transparency (KWin blur/contrast) |
-| Everything else | Win11-style list pages that open the matching Plasma KCM (`kcmshell6`) |
+| **Home** | wallpaper picker, light/dark mode, Bluetooth toggle, rename PC, disk usage, OS info, network status |
+| **System → Display** | resolution, refresh rate, scale, orientation, HDR, multi-display mode, night light, brightness, Identify (`kscreen-doctor`) |
+| **System → Sound** | output/input device, volume, mute (`pactl`, works with PipeWire) |
+| **System → Power & battery** | battery level, power mode (`powerprofilesctl`), screen-off and sleep timeouts (PowerDevil config) |
+| **System → About** | device + OS specs with Copy, rename PC |
+| **Bluetooth & devices** | on/off, paired devices with connect / disconnect / remove (`bluetoothctl`) |
+| **Network & internet** | connection status, Wi-Fi on/off, network list, connect with password, disconnect, forget (`nmcli`) |
+| **Personalization → Colors** | light/dark, Win11 accent grid + recent + custom, automatic accent, transparency |
+| **Time & language → Date & time** | live clock, automatic time (NTP), time zone (`timedatectl`) |
+
+Everything else still opens the matching KDE settings module, until it gets a native page.
+Pairing a *new* Bluetooth device still uses KDE's wizard.
 
 Search (Ctrl+F) covers the nav, every list entry and the settings inside the custom pages.
 
@@ -39,6 +47,7 @@ Search (Ctrl+F) covers the nav, every list entry and the settings inside the cus
 
 - **Light/Dark** switches to **Breeze Light / Breeze Dark**. If you use a different color
   scheme, change the names in `Backend.setDark`.
+- **Screen/sleep timeouts** write Plasma 6's `powerdevilrc` keys directly; if PowerDevil doesn't pick them up right away, log out and back in.
 - **Brightness** uses the PowerDevil D-Bus API. If your Plasma version doesn't expose it, the card hides itself.
 - **Automatic accent** writes `accentColorFromWallpaper`; Plasma may need a re-login to pick it up.
 - **Mica** is faked with a tinted gradient. There's no real KWin blur-behind yet.

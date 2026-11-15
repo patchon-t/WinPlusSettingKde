@@ -4,6 +4,11 @@
 //   page: a QML page in this folder   kcm: a Plasma KCM (kcmshell6)   cmd: a command
 // Icons: "name|fallback|fallback" from the icon theme, or qml/icons/<name>.svg
 
+// Top-level page with its own QML that also shows a list of `items`
+function custom(title, icon, page, items) {
+    return { title: title, icon: icon, page: page, props: { pageTitle: title, items: items } }
+}
+
 function list(title, icon, items) {
     return { title: title, icon: icon, page: "KcmListPage.qml",
              props: { pageTitle: title, items: items } }
@@ -11,9 +16,9 @@ function list(title, icon, items) {
 
 var system = [
     { icon: "fl:desktop_20_regular", title: "Display", desc: "Monitors, brightness, night light, display profile", page: "DisplayPage.qml" },
-    { icon: "fl:speaker_2_20_regular", title: "Sound", desc: "Volume levels, output, input, sound devices", kcm: "kcm_pulseaudio" },
+    { icon: "fl:speaker_2_20_regular", title: "Sound", desc: "Volume levels, output, input, sound devices", page: "SoundPage.qml" },
     { icon: "fl:alert_20_regular", title: "Notifications", desc: "Alerts from apps and system, do not disturb", kcm: "kcm_notifications" },
-    { icon: "fl:battery_charge_20_regular", title: "Power & battery", desc: "Screen and sleep, battery usage, power mode", kcm: "kcm_powerdevilprofilesconfig" },
+    { icon: "fl:battery_charge_20_regular", title: "Power & battery", desc: "Screen and sleep, battery usage, power mode", page: "PowerPage.qml" },
     { icon: "fl:storage_20_regular", title: "Storage", desc: "Storage space, drives, disk usage", cmd: ["filelight", "/"] },
     { icon: "fl:phone_laptop_20_regular", title: "Nearby sharing", desc: "KDE Connect, phones and other devices", kcm: "kcm_kdeconnect" },
     { icon: "fl:window_multiple_20_regular", title: "Multitasking", desc: "Virtual desktops, task switching, screen edges", kcm: "kcm_kwin_virtualdesktops" },
@@ -21,15 +26,13 @@ var system = [
     { icon: "fl:remote_20_regular", title: "Remote Desktop", desc: "Remote desktop users, connection permissions", kcm: "kcm_krdpserver" },
     { icon: "fl:sign_out_20_regular", title: "Session", desc: "Login, logout, restore previous session", kcm: "kcm_smserver" },
     { icon: "fl:apps_add_in_20_regular", title: "Optional features", desc: "Extra functionality for your device", cmd: ["plasma-discover"] },
-    { icon: "fl:info_20_regular", title: "About", desc: "Device specifications, OS and Plasma versions", kcm: "kcm_about-distro" }
+    { icon: "fl:info_20_regular", title: "About", desc: "Device specifications, rename PC, OS and Plasma versions", page: "AboutPage.qml" }
 ]
 
 var nav = [
     { title: "Home", icon: "fl:home_20_color", page: "HomePage.qml", props: {} },
     list("System", "fl:laptop_20_color", system),
-    list("Bluetooth & devices", "fl:bluetooth_20_filled@0078d4", [
-        { icon: "fl:bluetooth_20_regular", title: "Bluetooth", toggle: "bluetooth" },
-        { icon: "fl:bluetooth_20_regular", title: "Devices", desc: "Paired and connected Bluetooth devices", kcm: "kcm_bluetooth" },
+    custom("Bluetooth & devices", "fl:bluetooth_20_filled@0078d4", "BluetoothPage.qml", [
         { icon: "fl:print_20_regular", title: "Printers & scanners", desc: "Preferences, troubleshoot", kcm: "kcm_printer_manager" },
         { icon: "fl:cursor_20_regular", title: "Mouse", desc: "Buttons, pointer speed, scrolling", kcm: "kcm_mouse" },
         { icon: "fl:cursor_20_regular", title: "Touchpad", desc: "Taps, gestures, scrolling, zooming", kcm: "kcm_touchpad" },
@@ -38,8 +41,8 @@ var nav = [
         { icon: "fl:usb_stick_20_regular", title: "Removable storage", desc: "What happens when you plug in drives", kcm: "kcm_device_automounter" },
         { icon: "fl:xbox_controller_20_regular", title: "Game controllers", desc: "Test and set up gamepads", kcm: "kcm_gamecontroller" }
     ]),
-    list("Network & internet", "fl:wifi_20_color", [
-        { icon: "fl:wifi_1_20_regular", title: "Connections", desc: "Wi-Fi, Ethernet, VPN, mobile broadband", kcm: "kcm_networkmanagement" },
+    custom("Network & internet", "fl:wifi_20_color", "NetworkPage.qml", [
+        { icon: "fl:wifi_1_20_regular", title: "Advanced network settings", desc: "Ethernet, VPN, hotspot, IP and DNS", kcm: "kcm_networkmanagement" },
         { icon: "fl:globe_20_regular", title: "Proxy", desc: "Proxy server for network connections", kcm: "kcm_proxy" },
         { icon: "fl:shield_20_regular", title: "Firewall", desc: "Allow and block network traffic", kcm: "kcm_firewall" }
     ]),
@@ -67,7 +70,7 @@ var nav = [
         { icon: "fl:people_20_regular", title: "Online accounts", desc: "Google, Nextcloud, and other accounts", kcm: "kcm_kaccounts" }
     ]),
     list("Time & language", "fl:globe_20_color", [
-        { icon: "fl:clock_20_regular", title: "Date & time", desc: "Time zone, automatic clock", kcm: "kcm_clock" },
+        { icon: "fl:clock_20_regular", title: "Date & time", desc: "Time zone, automatic clock", page: "DateTimePage.qml" },
         { icon: "fl:local_language_20_regular", title: "Region & language", desc: "Language, formats, measurement units", kcm: "kcm_regionandlang" },
         { icon: "fl:keyboard_20_regular", title: "Typing", desc: "Keyboard layouts and input methods", kcm: "kcm_keyboard" },
         { icon: "fl:text_grammar_wand_20_regular", title: "Spell check", desc: "Dictionaries and auto-correct", kcm: "kcm_spellchecking" }
@@ -110,7 +113,14 @@ var pageSettings = [
     { title: "Scale", kw: "scale dpi zoom size text", nav: "System", icon: "fl:desktop_20_regular", page: "DisplayPage.qml" },
     { title: "Refresh rate", kw: "hz refresh fps", nav: "System", icon: "fl:desktop_20_regular", page: "DisplayPage.qml" },
     { title: "Brightness", kw: "brightness dim", nav: "System", icon: "fl:desktop_20_regular", page: "DisplayPage.qml" },
-    { title: "Wallpaper", kw: "background wallpaper desktop", nav: "Home", icon: "fl:home_20_regular" }
+    { title: "Wallpaper", kw: "background wallpaper desktop", nav: "Home", icon: "fl:home_20_regular" },
+    { title: "Volume", kw: "volume sound speaker output mute", nav: "System", icon: "fl:speaker_2_20_regular", page: "SoundPage.qml" },
+    { title: "Microphone", kw: "mic microphone input recording", nav: "System", icon: "fl:mic_20_regular", page: "SoundPage.qml" },
+    { title: "Wi-Fi", kw: "wifi wireless network internet", nav: "Network & internet", icon: "fl:wifi_1_20_regular" },
+    { title: "Power mode", kw: "power performance battery saver profile", nav: "System", icon: "fl:gauge_20_regular", page: "PowerPage.qml" },
+    { title: "Screen and sleep", kw: "sleep screen timeout turn off", nav: "System", icon: "fl:desktop_20_regular", page: "PowerPage.qml" },
+    { title: "Time zone", kw: "time zone timezone clock", nav: "Time & language", icon: "fl:earth_20_regular", page: "DateTimePage.qml" },
+    { title: "Rename this PC", kw: "rename hostname computer name", nav: "System", icon: "fl:laptop_20_color", page: "AboutPage.qml" }
 ]
 
 function search(q) {

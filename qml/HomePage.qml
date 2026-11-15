@@ -226,7 +226,7 @@ SettingsPage {
                     text: "About this PC"
                     Layout.leftMargin: 18
                     Layout.bottomMargin: 18
-                    onClicked: Backend.openKcm("kcm_about-distro")
+                    onClicked: Router.open("AboutPage.qml", {})
                 }
             }
         }
