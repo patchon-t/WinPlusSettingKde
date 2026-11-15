@@ -10,7 +10,7 @@ AccDialog {
     id: dlg
     title: "Change your password"
     message: "You'll be asked to confirm with your administrator password."
-    acceptText: "Next"
+    acceptText: "Change password"
     acceptEnabled: newPw.text.length > 0 && newPw.text === confirmPw.text
     onShown: { newPw.text = ""; confirmPw.text = ""; hint.text = ""; newPw.field.forceActiveFocus() }
     onConfirmed: Backend.changeUserPassword(newPw.text, hint.text)
