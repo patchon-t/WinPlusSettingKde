@@ -333,7 +333,7 @@ class TimeLanguageMixin:
         terr = QLocale.territoryToString(loc.territory())
         if loc.language() == QLocale.Language.C:
             return code
-        return f"{lang} ({terr})" if "_" in code and loc.territory() != QLocale.Territory.AnyTerritory else lang
+        return f"{lang} ({terr})" if "_" in code and loc.territory() != QLocale.Country.AnyCountry else lang
 
     @staticmethod
     def _tl_strip(code: str) -> str:
@@ -366,7 +366,7 @@ class TimeLanguageMixin:
             return
         seen, items, regions = set(), [], {}
         for loc in QLocale.matchingLocales(QLocale.Language.AnyLanguage, QLocale.Script.AnyScript,
-                                           QLocale.Territory.AnyTerritory):
+                                           QLocale.Country.AnyCountry):
             code = loc.name()
             if loc.language() == QLocale.Language.C or "_" not in code or code in seen:
                 continue
