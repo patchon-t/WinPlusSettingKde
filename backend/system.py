@@ -96,6 +96,9 @@ class SystemMixin:
     powerChanged = Signal()
     sysCfgChanged = Signal()
     sysNightChanged = Signal()
+    sysNotifAppsChanged = Signal()
+    sysStorageChanged = Signal()
+    sysMiscChanged = Signal()
 
     def _init_system(self):
         self._sys_ini_cache: dict = {}
@@ -117,6 +120,9 @@ class SystemMixin:
         self._bat_present, self._bat_pct, self._bat_status = False, 0, ""
         self._profiles, self._profile_idx = [], -1
         self._sys_night_status = ""
+        self._sys_notif_apps: list = []
+        self._sys_init_storage()
+        self._sys_init_misc()
         self._async(["plasmashell", "--version"], self._on_plasma_version)
         QTimer.singleShot(0, self.reloadOutputs)
         QTimer.singleShot(0, self.sysRefreshBrightness)
@@ -967,6 +973,166 @@ class SystemMixin:
             sub = "move-sink-input" if kind == "out" else "move-source-output"
             self._async(["pactl", sub, str(index), devs[device]["name"]],
                         lambda *_: self.sysRefreshMixer())
+
+    # ---------------------------------------------------- Notifications / Do not disturb / Focus
+    NOTIF_RC = "plasmanotifyrc"
+
+    def _sys_until(self):
+        """DND end as naive local datetime, or None."""
+        raw = self.sysCfg(self.NOTIF_RC, "DoNotDisturb", "Until", "")
+        parts = [p.strip() for p in raw.split(",")] if raw else []
+        if len(parts) < 6:
+            return None
+        try:
+            y, mo, d, h, mi = (int(float(p)) for p in parts[:5])
+            sec = int(float(parts[5]))
+            dt = datetime(y, mo, d, h, mi, sec)
+            if len(parts) >= 7:
+                from zoneinfo import ZoneInfo
+                try:
+                    dt = dt.replace(tzinfo=ZoneInfo(parts[6])).astimezone().replace(tzinfo=None)
+                except Exception:
+                    dt = dt.replace(tzinfo=None)
+            return dt
+        except (ValueError, OverflowError):
+            return None
+
+    @Slot(result=int)
+    def sysDndRemaining(self) -> int:
+        """Seconds of do-not-disturb left: 0 = off, -1 = until turned off."""
+        dt = self._sys_until()
+        if dt is None:
+            return 0
+        left = (dt - datetime.now()).total_seconds()
+        if left <= 0:
+            return 0
+        return -1 if dt.year >= 2900 else int(left)
+
+    @Slot(bool)
+    def sysDndSet(self, on: bool):
+        if on:
+            self.sysCfgSet(self.NOTIF_RC, "DoNotDisturb", "Until", "2999,12,31,0,0,0", "")
+        else:
+            self.sysCfgDel(self.NOTIF_RC, "DoNotDisturb", "Until")
+
+    @Slot(int)
+    def sysFocusStart(self, minutes: int):
+        end = datetime.now().timestamp() + minutes * 60
+        e = datetime.fromtimestamp(end)
+        self.sysCfgSet(self.NOTIF_RC, "DoNotDisturb", "Until",
+                       f"{e.year},{e.month},{e.day},{e.hour},{e.minute},{e.second}", "")
+
+    @Slot()
+    def sysFocusStop(self):
+        self.sysCfgDel(self.NOTIF_RC, "DoNotDisturb", "Until")
+
+    # --- apps and other senders (same discovery as the Plasma notifications KCM:
+    #     plasma-workspace/kcms/notifications/sourcesmodel.cpp)
+    @staticmethod
+    def _sys_data_dirs() -> list:
+        home = Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local/share")
+        dirs = [home] + [Path(d) for d in (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if d]
+        for extra in (HOME / ".local/share/flatpak/exports/share", Path("/var/lib/flatpak/exports/share")):
+            if extra not in dirs:
+                dirs.append(extra)
+        return dirs
+
+    @staticmethod
+    def _sys_desktop_entry(path: Path) -> dict:
+        """Name / Icon / flags of the [Desktop Entry] group of a .desktop file."""
+        res: dict = {}
+        try:
+            for line in path.read_text(errors="replace").splitlines():
+                line = line.strip()
+                if line.startswith("[") and line != "[Desktop Entry]":
+                    if res:
+                        break
+                    continue
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    if k in ("Name", "Icon", "NoDisplay", "X-GNOME-UsesNotifications", "Exec", "Categories"):
+                        res.setdefault(k, v.strip())
+        except OSError:
+            pass
+        return res
+
+    @Slot()
+    def sysRefreshNotifApps(self):
+        apps: dict = {}          # id -> {id, name, icon, kind}
+        desktops: dict = {}      # desktop entry name -> parsed (first dir wins)
+        for d in self._sys_data_dirs():
+            adir = d / "applications"
+            if not adir.is_dir():
+                continue
+            for p in adir.rglob("*.desktop"):
+                name = ".".join(p.relative_to(adir).with_suffix("").parts)
+                if name not in desktops:
+                    desktops[name] = p
+        uses = {}
+        for name, p in desktops.items():
+            try:
+                head = p.read_text(errors="replace")
+            except OSError:
+                continue
+            if "X-GNOME-UsesNotifications" not in head:
+                continue
+            e = self._sys_desktop_entry(p)
+            if e.get("X-GNOME-UsesNotifications", "").lower() == "true" and e.get("NoDisplay", "").lower() != "true":
+                uses[name] = e
+
+        def add(entry_id, name, icon, kind):
+            if entry_id and entry_id not in apps:
+                apps[entry_id] = {"id": entry_id, "name": name or entry_id, "icon": icon or "", "kind": kind}
+
+        for d in self._sys_data_dirs():
+            for sub in ("knotifications6", "knotifications5"):
+                nd = d / sub
+                if not nd.is_dir():
+                    continue
+                for p in sorted(nd.glob("*.notifyrc")):
+                    g = sys_parse_ini(p).get("Global", {})
+                    de = g.get("DesktopEntry", "")
+                    if de:
+                        ent = self._sys_desktop_entry(desktops[de]) if de in desktops else {}
+                        if ent.get("NoDisplay", "").lower() == "true":
+                            continue
+                        add(de, ent.get("Name") or g.get("Name"), ent.get("Icon") or g.get("IconName"), "app")
+                    else:
+                        add("svc:" + p.stem, g.get("Name"), g.get("IconName"), "service")
+        for name, e in uses.items():
+            add(name, e.get("Name"), e.get("Icon"), "app")
+        seen = self._sys_ini(self.NOTIF_RC)
+        for grp in seen:
+            if grp.startswith("Applications/") and grp.count("/") == 1:
+                de = grp.split("/", 1)[1]
+                if de in desktops and de not in apps:
+                    ent = self._sys_desktop_entry(desktops[de])
+                    if ent.get("NoDisplay", "").lower() != "true":
+                        add(de, ent.get("Name"), ent.get("Icon"), "app")
+        lst = sorted(apps.values(), key=lambda a: (a["kind"] != "app", a["name"].lower()))
+        self._sys_notif_apps = lst
+        self.sysNotifAppsChanged.emit()
+
+    sysNotifApps = Property("QVariantList", lambda s: s._sys_notif_apps, notify=sysNotifAppsChanged)
+
+    @Slot(str, str, result=str)
+    def sysNotifGroup(self, kind: str, app_id: str) -> str:
+        """KConfig group of a sender in plasmanotifyrc."""
+        if kind == "service":
+            return "Services/" + app_id.removeprefix("svc:")
+        return "Applications/" + app_id
+
+    @Slot(str, str, bool)
+    def sysNotifSetAll(self, kind: str, app_id: str, on: bool):
+        g = self.sysNotifGroup(kind, app_id)
+        for key in ("ShowPopups", "ShowInHistory"):
+            self.sysCfgSet(self.NOTIF_RC, g, key, "true" if on else "false", "bool")
+
+    def _sys_init_storage(self):
+        pass
+
+    def _sys_init_misc(self):
+        pass
 
     # ---------------------------------------------------- Power & battery
     PROFILE_LABELS = {"power-saver": "Best power efficiency", "balanced": "Balanced",

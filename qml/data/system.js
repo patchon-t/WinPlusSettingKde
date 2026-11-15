@@ -19,6 +19,12 @@ var entry = H.list("System", "fl:laptop_20_color", [
         { icon: "fl:speaker_2_20_regular", title: "Sound device properties", desc: "Volume, balance, port, allow or block a device", page: P + "SoundDevicePage.qml", props: { kind: "sink", name: "alsa_output.pci-0000_00_1f.3.analog-stereo", card: "alsa_card.pci-0000_00_1f.3" } },
         { icon: "fl:options_20_regular", title: "Volume mixer", desc: "App volume mix, app input & output devices", page: P + "VolumeMixerPage.qml" }
       ] },
+    { icon: "fl:alert_20_regular", title: "Notifications", desc: "Alerts from apps and system, do not disturb", page: P + "NotificationsPage.qml",
+      items: [
+        { icon: "fl:alert_urgent_20_regular", title: "Set priority notifications", desc: "Choose which notifications can break through do not disturb", page: P + "NotificationPriorityPage.qml" },
+        { icon: "fl:alert_20_regular", title: "App notification settings", desc: "Banners, notification center, badges", page: P + "NotificationAppPage.qml", props: { appId: "org.kde.dolphin", appName: "Dolphin", appIcon: "system-file-manager", kind: "app" } }
+      ] },
+    { icon: "fl:timer_20_regular", title: "Focus", desc: "Reduce distractions with a focus session and do not disturb", page: P + "FocusPage.qml" },
     { icon: "fl:battery_charge_20_regular", title: "Power & battery", desc: "Screen and sleep, battery usage, power mode", page: P + "PowerPage.qml" },
     { icon: "fl:info_20_regular", title: "About", desc: "Device specifications, rename PC, OS and Plasma versions", page: P + "AboutPage.qml" }
 ])
