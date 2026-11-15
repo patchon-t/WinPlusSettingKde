@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import WinSettings
-import "."
+import "../.."
 
 SettingsPage {
     id: page
@@ -101,7 +101,7 @@ SettingsPage {
                 subtitle: "Recent and commonly used settings"
                 HomeRow { icon: "fl:storage_20_regular"; title: "Storage"; onClicked: Backend.runCommand(["filelight", "/"]) }
                 HomeRow { icon: "fl:paint_brush_20_regular"; title: "Themes"; onClicked: Backend.openKcm("kcm_lookandfeel") }
-                HomeRow { icon: "fl:desktop_20_regular"; title: "Display"; onClicked: Router.open("DisplayPage.qml", {}) }
+                HomeRow { icon: "fl:desktop_20_regular"; title: "Display"; onClicked: Router.open("pages/system/DisplayPage.qml", {}) }
             }
 
             HomeCard {
@@ -158,7 +158,7 @@ SettingsPage {
                     icon: "fl:color_20_regular"
                     title: "Colors"
                     subtitle: "Accent color, transparency effects"
-                    onClicked: Router.open("ColorsPage.qml", {})
+                    onClicked: Router.open("pages/personalization/ColorsPage.qml", {})
                 }
             }
         }
@@ -226,7 +226,7 @@ SettingsPage {
                     text: "About this PC"
                     Layout.leftMargin: 18
                     Layout.bottomMargin: 18
-                    onClicked: Router.open("AboutPage.qml", {})
+                    onClicked: Router.open("pages/system/AboutPage.qml", {})
                 }
             }
         }

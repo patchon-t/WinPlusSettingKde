@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import WinSettings
-import "."
+import "../.."
 
 SettingsPage {
     id: page
