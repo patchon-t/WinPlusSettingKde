@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 fonts/*
 !fonts/README.md
+
+# Claude Code agent worktrees (temporary)
+.claude/worktrees/
