@@ -7,13 +7,12 @@ import os
 import re
 import shutil
 import socket
-import time
 from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Property, QTimer, Signal, Slot
 
-from .util import ANSI, HOME, dbus, has, kread, kwin_reconfigure, kwrite, prop, run, spawn
+from .util import ANSI, HOME, dbus, has, kwin_reconfigure, prop, spawn
 
 SCALES = [1.0, 1.25, 1.5, 1.75, 2.0]
 ROT_TO_INDEX = {1: 0, 2: 1, 4: 2, 8: 3}          # kscreen: none, left, inverted, right
@@ -1474,11 +1473,196 @@ class SystemMixin:
         self._async(["mkdir", "-p", path],
                     lambda ok, _o: self._async(["xdg-user-dirs-update", "--set", key, path], after) if ok else after(False, ""))
 
+    # ---------------------------------------------------- Multitasking / Clipboard / Remote Desktop /
+    #                                                       Nearby sharing / For developers
+    KRDP_UNIT = "app-org.kde.krdpserver.service"
+
     def _sys_init_misc(self):
-        pass
+        self._sys_taskbar_all = None          # None = no task manager found
+        self._sys_desktops: list = []
+        self._sys_kc_devices: list = []
+        self._sys_rdp_active = False
+        self._sys_rdp_enabled = False
+        self._sys_terminals: list = []
+        self._sys_gpu = ""
+        self._sys_touch = None
+
+    sysDesktops = Property("QVariantList", lambda s: s._sys_desktops, notify=sysMiscChanged)
+    sysKdeConnectDevices = Property("QVariantList", lambda s: s._sys_kc_devices, notify=sysMiscChanged)
+    sysRdpActive = Property(bool, lambda s: s._sys_rdp_active, notify=sysMiscChanged)
+    sysRdpEnabled = Property(bool, lambda s: s._sys_rdp_enabled, notify=sysMiscChanged)
+    sysTerminals = Property("QVariantList", lambda s: s._sys_terminals, notify=sysMiscChanged)
+    sysKdeConnectAvailable = Property(bool, lambda s: has("kdeconnect-cli"), constant=True)
+
+    @Property(int, notify=sysMiscChanged)
+    def sysTaskbarAllDesktops(self):
+        """1 = task manager shows windows of all desktops, 0 = current only, -1 = no task manager."""
+        return -1 if self._sys_taskbar_all is None else int(not self._sys_taskbar_all)
+
+    # --- Multitasking: task manager applet (via plasmashell scripting) and virtual desktops
+    _SYS_TM_FIND = ("panels().forEach(function(p){p.widgets().forEach(function(w){"
+                    "if(w.type=='org.kde.plasma.taskmanager'||w.type=='org.kde.plasma.icontasks'){%s}})});")
+
+    @Slot()
+    def sysRefreshTaskbar(self):
+        script = ("var r='none';" + self._SYS_TM_FIND %
+                  "w.currentConfigGroup=['General'];r=String(w.readConfig('showOnlyCurrentDesktop',false));" + "r;")
+
+        def cb(ok, out):
+            m = re.search(r'string "([^"]*)"', out)
+            val = m.group(1) if m and ok else "none"
+            self._sys_taskbar_all = None if val == "none" else (val != "true")
+            self.sysMiscChanged.emit()
+        self._async(["dbus-send", "--session", "--dest=org.kde.plasmashell", "--print-reply", "/PlasmaShell",
+                     "org.kde.PlasmaShell.evaluateScript", f"string:{script}"], cb)
+
+    @Slot(bool)
+    def sysSetTaskbarAllDesktops(self, all_desktops: bool):
+        script = self._SYS_TM_FIND % ("w.currentConfigGroup=['General'];"
+                                      f"w.writeConfig('showOnlyCurrentDesktop',{'false' if all_desktops else 'true'});"
+                                      "w.reloadConfig();")
+        self._sys_taskbar_all = all_desktops
+        self.sysMiscChanged.emit()
+        self._async(["dbus-send", "--session", "--dest=org.kde.plasmashell", "--print-reply", "/PlasmaShell",
+                     "org.kde.PlasmaShell.evaluateScript", f"string:{script}"], lambda *_: None)
+
+    @Slot()
+    def sysRefreshDesktops(self):
+        def cb(ok, out):
+            res = []
+            try:
+                data = json.loads(out)
+                rows = data.get("data", [])
+                if rows and isinstance(rows[0], list) and rows and isinstance(rows[0][0], list):
+                    rows = rows[0]
+                for r in rows:
+                    if isinstance(r, list) and len(r) >= 3:
+                        res.append({"pos": int(r[0]), "id": str(r[1]), "name": str(r[2])})
+            except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                res = []
+            self._sys_desktops = res
+            self.sysMiscChanged.emit()
+        self._async(["busctl", "--user", "--json=short", "get-property", "org.kde.KWin", "/VirtualDesktopManager",
+                     "org.kde.KWin.VirtualDesktopManager", "desktops"], cb)
+
+    def _sys_vd_call(self, method: str, sig: str, *args: str):
+        self._async(["busctl", "--user", "call", "org.kde.KWin", "/VirtualDesktopManager",
+                     "org.kde.KWin.VirtualDesktopManager", method, sig, *args],
+                    lambda *_: QTimer.singleShot(300, self.sysRefreshDesktops))
+
+    @Slot()
+    def sysAddDesktop(self):
+        n = len(self._sys_desktops)
+        self._sys_vd_call("createDesktop", "us", str(n), f"Desktop {n + 1}")
+
+    @Slot(str)
+    def sysRemoveDesktop(self, desktop_id: str):
+        self._sys_vd_call("removeDesktop", "s", desktop_id)
+
+    @Slot(str, str)
+    def sysRenameDesktop(self, desktop_id: str, name: str):
+        if name.strip():
+            self._sys_vd_call("setDesktopName", "ss", desktop_id, name.strip())
+
+    # --- Clipboard
+    @Slot()
+    def sysClearClipboard(self):
+        dbus("org.kde.klipper", "/klipper", "org.kde.klipper.klipper.clearClipboardHistory")
+
+    # --- Remote Desktop (KRdp)
+    @Slot()
+    def sysRefreshRdp(self):
+        def active(ok, out):
+            self._sys_rdp_active = out.strip() == "active"
+            self.sysMiscChanged.emit()
+
+        def enabled(ok, out):
+            self._sys_rdp_enabled = out.strip() == "enabled"
+            self.sysMiscChanged.emit()
+        self._async(["systemctl", "--user", "is-active", self.KRDP_UNIT], active)
+        self._async(["systemctl", "--user", "is-enabled", self.KRDP_UNIT], enabled)
+
+    @Slot(bool)
+    def sysSetRdp(self, on: bool):
+        """Enable (start now + at sign-in) or disable the KRdp server, as the KCM does."""
+        self._sys_rdp_active = self._sys_rdp_enabled = on
+        self.sysMiscChanged.emit()
+        self.sysCfgSet("krdpserverrc", "General", "Autostart", "true" if on else "false", "bool")
+        if on:   # pre-authorise screen sharing in the portal permission store (krdp kcmkrdpserver.cpp)
+            self._async(["busctl", "--user", "call", "org.freedesktop.impl.portal.PermissionStore",
+                         "/org/freedesktop/impl/portal/PermissionStore",
+                         "org.freedesktop.impl.portal.PermissionStore", "SetPermission", "sbssas",
+                         "kde-authorized", "true", "remote-desktop", "org.kde.krdpserver", "1", "yes"])
+        self._async(["systemctl", "--user", "enable" if on else "disable", "--now", self.KRDP_UNIT],
+                    lambda *_: self.sysRefreshRdp(), 30000)
+
+    @Slot(result=str)
+    def sysRdpAddress(self) -> str:
+        port = self.sysCfg("krdpserverrc", "General", "ListenPort", "3389")
+        return f"{socket.gethostname()}:{port}"
+
+    # --- Nearby sharing (KDE Connect)
+    @Slot()
+    def sysRefreshNearby(self):
+        def cb(ok, out):
+            devs = []
+            for line in out.splitlines():
+                m = re.match(r"^- (.+): (\S+) \(([^)]*)\)", line.strip())
+                if m:
+                    devs.append({"name": m.group(1), "id": m.group(2), "state": m.group(3)})
+            self._sys_kc_devices = devs
+            self.sysMiscChanged.emit()
+        self._async(["kdeconnect-cli", "--list-devices"], cb)
+
+    @Slot()
+    def sysNearbyRefresh(self):
+        self._async(["kdeconnect-cli", "--refresh"], lambda *_: QTimer.singleShot(1500, self.sysRefreshNearby))
+
+    # --- For developers: terminal emulators (desktop files with Categories=TerminalEmulator)
+    @Slot()
+    def sysRefreshTerminals(self):
+        seen: dict = {}
+        for d in self._sys_data_dirs():
+            adir = d / "applications"
+            if not adir.is_dir():
+                continue
+            for p in sorted(adir.glob("*.desktop")):
+                if p.name in seen:
+                    continue
+                e = self._sys_desktop_entry(p)
+                if "TerminalEmulator" in e.get("Categories", "") and e.get("NoDisplay", "").lower() != "true":
+                    exe = e.get("Exec", "").split()[0] if e.get("Exec") else ""
+                    seen[p.name] = {"name": e.get("Name", p.stem), "service": p.name, "exec": os.path.basename(exe)}
+        self._sys_terminals = sorted(seen.values(), key=lambda t: t["name"].lower())
+        self.sysMiscChanged.emit()
+
+    @Slot(str, str)
+    def sysSetTerminal(self, exe: str, service: str):
+        self.sysCfgSet("kdeglobals", "General", "TerminalApplication", exe)
+        self.sysCfgSet("kdeglobals", "General", "TerminalService", service)
 
     # ---------------------------------------------------- About
-    @Property("QVariantList", constant=True)
+    @Slot()
+    def sysRefreshAbout(self):
+        def gpu(ok, out):
+            m = re.search(r"OpenGL renderer string:\s*([^\n\\]+)", out)
+            self._sys_gpu = m.group(1).strip() if m and ok else ""
+            self.aboutChanged.emit()
+
+        def touch(ok, out):
+            if not ok:
+                self._sys_touch = None
+            else:
+                m = re.search(r"array \[(.*?)\]", out, re.S)
+                self._sys_touch = bool(m and re.search(r'string "', m.group(1)))
+            self.aboutChanged.emit()
+        self._async(["dbus-send", "--session", "--dest=org.kde.KWin", "--print-reply", "/KWin",
+                     "org.kde.KWin.supportInformation"], gpu, 15000)
+        self._async(["dbus-send", "--session", "--dest=org.kde.KWin", "--print-reply",
+                     "/org/kde/KWin/InputDeviceManager",
+                     "org.kde.KWin.InputDeviceManager.ListTouch"], touch)
+
+    @Property("QVariantList", notify=aboutChanged)
     def deviceSpecs(self):
         def cpu():
             try:
@@ -1496,24 +1680,47 @@ class SystemMixin:
             except (OSError, AttributeError):
                 return ""
 
+        def machine_id():
+            try:
+                return Path("/etc/machine-id").read_text().strip()
+            except OSError:
+                return ""
+
         arch = os.uname().machine
-        return [
+        u = shutil.disk_usage("/")
+        rows = [
             {"k": "Device name", "v": socket.gethostname()},
             {"k": "Model", "v": self.deviceModel},
             {"k": "Processor", "v": cpu()},
             {"k": "Installed RAM", "v": ram()},
+            {"k": "Device ID", "v": machine_id()},
+            {"k": "Graphics card", "v": self._sys_gpu},
+            {"k": "Storage", "v": f"{self.sys_human(u.total)} ({self.sys_human(u.used)} used)"},
             {"k": "System type", "v": f"64-bit operating system, {arch} processor" if arch.endswith("64")
                                     else f"{arch} processor"},
+            {"k": "Pen and touch", "v": "Touch support" if self._sys_touch
+                                      else ("No pen or touch input is available for this display"
+                                            if self._sys_touch is False else "")},
         ]
+        return [r for r in rows if r["v"]]
 
     @Property("QVariantList", notify=aboutChanged)
     def osSpecs(self):
         from PySide6 import __version__ as pyside_version
         from PySide6.QtCore import qVersion
-        return [
+        version = ""
+        try:
+            for line in Path("/etc/os-release").read_text().splitlines():
+                if line.startswith("VERSION_ID="):
+                    version = line.split("=", 1)[1].strip().strip('"')
+        except OSError:
+            pass
+        rows = [
             {"k": "Edition", "v": self.osName},
+            {"k": "Version", "v": version},
             {"k": "KDE Plasma", "v": self._plasma_version or "unknown"},
-            {"k": "Kernel", "v": os.uname().release},
+            {"k": "OS build", "v": os.uname().release},
             {"k": "Graphics platform", "v": os.environ.get("XDG_SESSION_TYPE", "").capitalize() or "unknown"},
             {"k": "Qt", "v": f"{qVersion()} (PySide6 {pyside_version})"},
         ]
+        return [r for r in rows if r["v"]]
