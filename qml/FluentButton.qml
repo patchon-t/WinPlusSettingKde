@@ -13,14 +13,14 @@ Button {
     contentItem: FText {
         text: b.text
         horizontalAlignment: Text.AlignHCenter
-        color: b.accent ? Theme.textOnAccent : (b.enabled ? Theme.text : Theme.textDisabled)
+        color: b.accent ? (b.enabled ? Theme.textOnAccent : Theme.textDisabled) : (b.enabled ? Theme.text : Theme.textDisabled)
         opacity: b.pressed && !b.accent ? 0.8 : 1
     }
     background: Rectangle {
         implicitWidth: 96
         radius: Theme.radius
         color: b.accent
-               ? (b.pressed ? Theme.accentPressed : b.hovered ? Theme.accentHover : Theme.accent)
+               ? (!b.enabled ? Theme.controlBgDisabled : b.pressed ? Theme.accentPressed : b.hovered ? Theme.accentHover : Theme.accent)
                : (!b.enabled ? Theme.controlBgDisabled : b.pressed ? Theme.controlBgPressed
                   : b.hovered ? Theme.controlBgHover : Theme.controlBg)
         Behavior on color { ColorAnimation { duration: Theme.durFaster } }

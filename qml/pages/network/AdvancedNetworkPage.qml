@@ -80,9 +80,11 @@ SettingsPage {
     }
 
     SectionHeader { text: "More settings" }
-    FText {
-        text: "Firewall settings are in Privacy & security."
-        font.pixelSize: Theme.fontCaption
-        color: Theme.textSecondary
+    SettingsCard {
+        icon: "fl:shield_20_regular"
+        title: "Windows Firewall"
+        description: "Allow or block network traffic"
+        clickable: true
+        onClicked: Router.open("pages/privacy/FirewallPage.qml", {})
     }
 }

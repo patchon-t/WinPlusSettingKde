@@ -118,4 +118,13 @@ SettingsPage {
             onMoved: Backend.setMouseDoubleClickInterval(value)
         }
     }
+
+    SectionHeader { text: "Related settings" }
+    SettingsCard {
+        icon: "fl:cursor_20_regular"
+        title: "Mouse pointer"
+        description: "Pointer size and style"
+        clickable: true
+        onClicked: Router.open("pages/accessibility/MousePointerPage.qml", {})
+    }
 }

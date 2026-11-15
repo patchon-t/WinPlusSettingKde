@@ -6,6 +6,7 @@ import "."
 ColumnLayout {
     id: ex
     property string icon
+    opacity: enabled ? 1 : 0.5
     property string title
     property string description
     property bool expanded: false

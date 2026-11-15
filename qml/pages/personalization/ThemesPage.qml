@@ -202,7 +202,8 @@ SettingsPage {
     SettingsCard {
         icon: "fl:color_20_regular"
         title: "Contrast themes"
-        description: "Not available yet"
-        enabled: false
+        description: "Color themes for low vision, light sensitivity"
+        clickable: true
+        onClicked: Router.open("pages/accessibility/ContrastThemesPage.qml", {})
     }
 }
