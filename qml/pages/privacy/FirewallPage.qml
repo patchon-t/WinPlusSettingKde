@@ -6,7 +6,7 @@ import "../.."
 // Firewall & network protection, driven by ufw (changes ask for administrator permission).
 SettingsPage {
     id: page
-    crumbs: ["Privacy & security", "Windows Security", "Firewall & network protection"]
+    crumbs: ["Windows Security", "Firewall & network protection"]
 
     readonly property var actions: ["allow", "deny", "reject", "limit"]
     readonly property var actionLabels: ["Allow", "Block", "Reject", "Limit"]
