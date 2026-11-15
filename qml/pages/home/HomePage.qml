@@ -46,7 +46,7 @@ SettingsPage {
             implicitWidth: 96
             implicitHeight: 62
             radius: 6
-            color: "#1a1a1a"
+            color: Backend.wallpaperUrl.length ? "#1a1a1a" : Theme.accent   // no wallpaper found: accent tile
             Image {
                 anchors.fill: parent
                 anchors.margins: 3
@@ -73,13 +73,13 @@ SettingsPage {
             icon: Backend.networkType === "wifi" ? "fl:wifi_1_20_regular" : "fl:desktop_20_regular"
             title: Backend.networkName.length ? Backend.networkName : "Not connected"
             subtitle: Backend.networkName.length ? "Connected" : ""
-            onClicked: Backend.openKcm("kcm_networkmanagement")
+            onClicked: Router.open("pages/network/WifiPage.qml", {})
         }
         StatusTile {
             icon: "fl:arrow_sync_20_color"
             title: "System updates"
-            subtitle: "Open Discover"
-            onClicked: Backend.runCommand(["plasma-discover", "--mode", "Update"])
+            subtitle: "Check for updates"
+            onClicked: Router.openNav(11)   // System updates
         }
     }
 
@@ -99,8 +99,8 @@ SettingsPage {
             HomeCard {
                 title: "Recommended settings"
                 subtitle: "Recent and commonly used settings"
-                HomeRow { icon: "fl:storage_20_regular"; title: "Storage"; onClicked: Backend.runCommand(["filelight", "/"]) }
-                HomeRow { icon: "fl:paint_brush_20_regular"; title: "Themes"; onClicked: Backend.openKcm("kcm_lookandfeel") }
+                HomeRow { icon: "fl:storage_20_regular"; title: "Storage"; onClicked: Router.open("pages/system/StoragePage.qml", {}) }
+                HomeRow { icon: "fl:paint_brush_20_regular"; title: "Themes"; onClicked: Router.open("pages/personalization/ThemesPage.qml", {}) }
                 HomeRow { icon: "fl:desktop_20_regular"; title: "Display"; onClicked: Router.open("pages/system/DisplayPage.qml", {}) }
             }
 
@@ -185,8 +185,8 @@ SettingsPage {
                 }
                 HomeRow {
                     title: "View all devices"
-                    onClicked: Backend.openKcm("kcm_bluetooth")
-                    FluentButton { text: "Add device"; onClicked: Backend.runCommand(["bluedevil-wizard"]) }
+                    onClicked: Router.open("pages/bluetooth/DevicesPage.qml", {})
+                    FluentButton { text: "Add device"; onClicked: Router.openNav(2) }
                 }
             }
 
@@ -213,7 +213,7 @@ SettingsPage {
                     Layout.leftMargin: 18
                     Layout.topMargin: 16
                     Layout.bottomMargin: 18
-                    onClicked: Backend.runCommand(["filelight", "/"])
+                    onClicked: Router.open("pages/system/StoragePage.qml", {})
                 }
             }
 
