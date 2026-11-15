@@ -75,8 +75,8 @@ Item {
             Rectangle {
                 id: pill
                 // plain values (no bindings): the handler below needs the OLD position
-                property real top: 10
-                property real bottom: 26
+                property real edgeTop: 10
+                property real edgeBottom: 26
                 property bool downward: true
                 property real squeeze: {
                     const it = list.itemAtIndex(pane.currentIndex)
@@ -87,11 +87,11 @@ Item {
                 width: 3
                 radius: 1.5
                 color: Theme.accent
-                y: top + squeeze
-                height: bottom - top - 2 * squeeze
-                Behavior on top { NumberAnimation { duration: pill.downward ? Theme.durSlow + 100 : Theme.durFast
+                y: edgeTop + squeeze
+                height: edgeBottom - edgeTop - 2 * squeeze
+                Behavior on edgeTop { NumberAnimation { duration: pill.downward ? Theme.durSlow + 100 : Theme.durFast
                     easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.standard } }
-                Behavior on bottom { NumberAnimation { duration: pill.downward ? Theme.durFast : Theme.durSlow + 100
+                Behavior on edgeBottom { NumberAnimation { duration: pill.downward ? Theme.durFast : Theme.durSlow + 100
                     easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.standard } }
                 Behavior on squeeze { NumberAnimation { duration: Theme.durFaster } }
             }
@@ -99,9 +99,9 @@ Item {
                 target: pane
                 function onCurrentIndexChanged() {
                     const t = pane.currentIndex * list.rowPitch + 10
-                    pill.downward = t > pill.top
-                    pill.top = t
-                    pill.bottom = t + 16
+                    pill.downward = t > pill.edgeTop
+                    pill.edgeTop = t
+                    pill.edgeBottom = t + 16
                 }
             }
         }
