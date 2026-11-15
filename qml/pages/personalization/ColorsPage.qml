@@ -8,6 +8,8 @@ SettingsPage {
     id: page
     crumbs: ["Personalization", "Colors"]
 
+    readonly property var cs: Backend.colorState
+
     // The Windows 11 accent palette (8 x 6)
     readonly property var paletteColors: [
         "#ffb900", "#ff8c00", "#f7630c", "#ca5010", "#da3b01", "#ef6950", "#d13438", "#ff4343",
@@ -18,126 +20,55 @@ SettingsPage {
         "#767676", "#4c4a48", "#69797e", "#4a5459", "#647c64", "#525e54", "#847545", "#7e735f"
     ]
 
-    component Swatch: Rectangle {
-        id: sw
-        property string swatchColor
-        readonly property bool selected: swatchColor.toLowerCase() === Backend.accent.toLowerCase()
-        implicitWidth: 40
-        implicitHeight: 40
-        radius: Theme.radius
-        color: "transparent"
-        border.width: selected || sma.containsMouse ? 2 : 0
-        border.color: Theme.text
+    Component.onCompleted: Backend.refreshColorState()
 
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: sw.selected || sma.containsMouse ? 3 : 0
-            radius: 2
-            color: sw.swatchColor
-        }
-        Rectangle {  // check badge
-            visible: sw.selected
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.margins: 3
-            width: 16
-            height: 16
-            radius: 2
-            color: Theme.text
-            Glyph {
-                anchors.centerIn: parent
-                width: 12
-                height: 12
-                lines: Theme.gCheck
-                color: Theme.windowBg
-                stroke: 1.5
-            }
-        }
-        MouseArea {
-            id: sma
-            anchors.fill: parent
-            hoverEnabled: true
-            onClicked: Backend.setAccent(sw.swatchColor)
-        }
-    }
+    PerPreview { Layout.bottomMargin: 12 }
 
-    // ---------------------------------------------------------- preview
-    Rectangle {
-        implicitWidth: 268
-        implicitHeight: 160
-        radius: Theme.radiusLarge
-        color: "#111111"
-        Layout.bottomMargin: 12
-
-        Item {
-            anchors.fill: parent
-            anchors.margins: 6
-            clip: true
-            Image {
-                anchors.fill: parent
-                source: Backend.wallpaperUrl
-                sourceSize.width: 540
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-            }
-            Rectangle {  // fake window
-                width: parent.width * 0.42
-                height: parent.height * 0.55
-                anchors.right: parent.right
-                anchors.rightMargin: parent.width * 0.1
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: -6
-                radius: 3
-                color: Theme.cardBg
-                Column {
-                    x: 10
-                    y: 12
-                    spacing: 6
-                    Repeater {
-                        model: [60, 50, 60, 36]
-                        Rectangle { width: modelData; height: 2; color: Theme.textSecondary; opacity: 0.6 }
-                    }
-                }
-                Rectangle {
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.margins: 8
-                    width: 20
-                    height: 7
-                    radius: 2
-                    color: Theme.accent
-                }
-            }
-            Rectangle {  // taskbar
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 14
-                color: Theme.dark ? "#d0202020" : "#d0f3f3f3"
-                Row {
-                    anchors.centerIn: parent
-                    spacing: 5
-                    Repeater {
-                        model: 5
-                        Rectangle {
-                            width: 7; height: 7; radius: 1.5
-                            color: index === 0 ? Theme.accent : Theme.textSecondary
-                            opacity: index === 0 ? 1 : 0.6
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ---------------------------------------------------------- settings
-    SettingsCard {
+    // ---------------------------------------------------------- mode
+    ExpanderCard {
+        id: modeCard
         icon: "fl:dark_theme_20_regular"
         title: "Choose your mode"
         description: "Change the colors that appear in Plasma and your apps"
-        FluentCombo {
-            model: ["Light", "Dark"]
-            currentIndex: Backend.dark ? 1 : 0
-            onActivated: (i) => Backend.setDark(i === 1)
+        expanded: page.cs.custom === true
+        headerControls: [
+            FluentCombo {
+                model: ["Light", "Dark", "Custom"]
+                currentIndex: page.cs.custom ? 2 : (Backend.dark ? 1 : 0)
+                onActivated: (i) => Backend.setColorMode(i)
+            }
+        ]
+        Connections {
+            target: Backend
+            function onColorStateChanged() { modeCard.expanded = Backend.colorState.custom === true }
+        }
+        ExpanderRow {
+            title: "Choose your default Plasma mode"
+            description: page.cs.shellOk ? "" : "Needs the breeze-light and breeze-dark Plasma styles"
+            FluentCombo {
+                enabled: page.cs.shellOk === true
+                model: ["Light", "Dark"]
+                currentIndex: page.cs.shellDark ? 1 : 0
+                onActivated: (i) => Backend.setShellDark(i === 1)
+            }
+        }
+        ExpanderRow {
+            title: "Choose your default app mode"
+            FluentCombo {
+                model: ["Light", "Dark"]
+                currentIndex: Backend.dark ? 1 : 0
+                onActivated: (i) => Backend.setDark(i === 1)
+            }
+        }
+    }
+
+    SettingsCard {
+        icon: "fl:weather_sunny_20_regular"
+        title: "Switch between light and dark automatically"
+        description: "Follows the schedule set under Display > Night Light"
+        FluentToggle {
+            checked: page.cs.auto === true
+            onToggled: (c) => Backend.setAutoLookAndFeel(c)
         }
     }
 
@@ -151,6 +82,7 @@ SettingsPage {
         }
     }
 
+    // ---------------------------------------------------------- accent
     ExpanderCard {
         icon: "fl:color_20_regular"
         title: "Accent color"
@@ -181,23 +113,27 @@ SettingsPage {
                 visible: Backend.recentAccents.length > 0
                 Repeater {
                     model: Backend.recentAccents
-                    delegate: Swatch {
+                    delegate: PerSwatch {
                         required property var modelData
                         swatchColor: modelData
+                        selectedColor: Backend.accent
+                        onPicked: (c) => Backend.setAccent(c)
                     }
                 }
             }
 
-            FText { text: "Accent colors" }
+            FText { text: "Windows colors" }
             GridLayout {
                 columns: 8
                 columnSpacing: 4
                 rowSpacing: 4
                 Repeater {
                     model: page.paletteColors
-                    delegate: Swatch {
+                    delegate: PerSwatch {
                         required property var modelData
                         swatchColor: modelData
+                        selectedColor: Backend.accent
+                        onPicked: (c) => Backend.setAccent(c)
                     }
                 }
             }
@@ -207,6 +143,22 @@ SettingsPage {
             title: "Custom colors"
             FluentButton { text: "View colors"; onClicked: colorDialog.open() }
         }
+    }
+
+    SettingsCard {
+        icon: "fl:window_20_regular"
+        title: "Show accent color on Start and taskbar"
+        description: "Not available on Plasma, the Plasma style decides"
+        enabled: false
+        FluentToggle { checked: false }
+    }
+
+    SettingsCard {
+        icon: "fl:window_20_regular"
+        title: "Show accent color on title bars and window borders"
+        description: "Not available yet"
+        enabled: false
+        FluentToggle { checked: false }
     }
 
     ColorDialog {
