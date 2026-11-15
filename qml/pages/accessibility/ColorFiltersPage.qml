@@ -79,7 +79,7 @@ SettingsPage {
         icon: "fl:brightness_high_20_regular"
         title: "Color intensity"
         description: "How strongly the filter is applied"
-        visible: page.selected >= 1
+        visible: page.selected >= 1 && page.active
         enabled: page.active
         FluentSlider {
             from: 0; to: 100; stepSize: 1

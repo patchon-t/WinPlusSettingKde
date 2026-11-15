@@ -7,7 +7,7 @@ SettingsPage {
     id: page
     crumbs: ["Accessibility", "Magnifier"]
 
-    readonly property var incs: [5, 10, 25, 50, 100, 150, 200, 400]
+    readonly property var incs: [5, 10, 20, 25, 50, 100, 150, 200, 400]
     function cfg(group, key, def) {
         Backend.a11yCfgRev
         return Backend.a11yCfg("kwinrc", group, key, def)
