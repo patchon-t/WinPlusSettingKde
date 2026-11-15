@@ -34,6 +34,7 @@ When unsure how something should look or behave, match the real Windows 11 Setti
 - `Image.implicitWidth/Height` are **read-only** → size icons with `Layout.preferredWidth/Height`.
 - `Item` now has **FINAL `top` / `bottom`** properties → never declare custom properties named `top`, `bottom`, `left`, `right`.
 - Inline `component X: ...` **can't see ids** of the enclosing file — pass data via properties or put helper functions inside the component.
+- **Never name a property `on<Capital>…`** (`onAccent`, `onText`): QML parses it as a signal handler and the binding silently never runs (value stays default). Use `textOnAccent`, `checkedText`, etc.
 - Don't give an id the same name as a property of a derived type (e.g. id `header` vs property `header`).
 - `QQuickWindow.setDefaultAlphaBuffer(True)` must run before the engine loads.
 

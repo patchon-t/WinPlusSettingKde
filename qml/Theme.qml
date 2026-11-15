@@ -12,7 +12,8 @@ QtObject {
     readonly property color accentHover: Qt.rgba(accent.r, accent.g, accent.b, 0.9)
     readonly property color accentPressed: Qt.rgba(accent.r, accent.g, accent.b, 0.8)
     readonly property color accentText: dark ? Qt.lighter(accentBase, 1.7) : Qt.darker(accentBase, 1.1)
-    readonly property color onAccent: dark ? "#000000" : "#ffffff"
+    // Text/glyphs on accent fills. Never name a property on<Capital>: QML reads it as a signal handler and the binding never runs.
+    readonly property color textOnAccent: dark ? "#000000" : "#ffffff"
 
     // ---- surfaces
     readonly property color windowBg: dark ? "#202020" : "#f3f3f3"

@@ -6,7 +6,7 @@ Item {
     id: t
     property bool checked: false
     property bool showLabel: true
-    property string onText: "On"
+    property string checkedText: "On"   // not "onText": on+Capital names are signal handlers in QML
     property string offText: "Off"
     signal toggled(bool checked)
 
@@ -16,7 +16,7 @@ Item {
 
     FText {
         visible: t.showLabel
-        text: t.checked ? t.onText : t.offText
+        text: t.checked ? t.checkedText : t.offText
         anchors.right: track.left
         anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
@@ -44,7 +44,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             x: t.checked ? parent.width - width - (parent.height - height) / 2
                          : (parent.height - height) / 2
-            color: t.checked ? Theme.onAccent : Theme.textSecondary
+            color: t.checked ? Theme.textOnAccent : Theme.textSecondary
             Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.standard } }
             Behavior on width { NumberAnimation { duration: 120 } }
             Behavior on height { NumberAnimation { duration: 120 } }

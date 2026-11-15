@@ -13,7 +13,7 @@ Button {
     contentItem: FText {
         text: b.text
         horizontalAlignment: Text.AlignHCenter
-        color: b.accent ? Theme.onAccent : (b.enabled ? Theme.text : Theme.textDisabled)
+        color: b.accent ? Theme.textOnAccent : (b.enabled ? Theme.text : Theme.textDisabled)
         opacity: b.pressed && !b.accent ? 0.8 : 1
     }
     background: Rectangle {
