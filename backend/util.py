@@ -57,11 +57,24 @@ def kread(file: str, group: str, key: str, default: str = "") -> str:
                 "--key", key, "--default", default]) or default
 
 
-def kwrite(file: str, group: str, key: str, value: str, kind: str | None = None):
+def kwrite(file: str, group: str, key: str, value: str, kind: str | None = None,
+           notify: bool = True):
+    """kwriteconfig6. notify=True passes --notify so daemons that use
+    KConfigWatcher (KWin, plasmashell, notifications, ...) apply it live."""
     args = ["kwriteconfig6", "--file", file, *_groups(group), "--key", key]
     if kind:
         args += ["--type", kind]
+    if notify:
+        args.append("--notify")
     run(args + [value])
+
+
+def kdelete(file: str, group: str, key: str, notify: bool = True):
+    """Remove a key so the default applies again (kwriteconfig6 --delete)."""
+    args = ["kwriteconfig6", "--file", file, *_groups(group), "--key", key, "--delete"]
+    if notify:
+        args.append("--notify")
+    run(args)
 
 
 def dbus(dest: str, path: str, method: str, *args: str, reply: bool = False):
