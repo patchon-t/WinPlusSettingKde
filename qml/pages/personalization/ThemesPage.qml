@@ -113,11 +113,12 @@ SettingsPage {
 
     Rectangle {
         Layout.fillWidth: true
-        implicitHeight: thumbs.implicitHeight + 40
+        implicitHeight: thumbCol.implicitHeight + 40
         radius: Theme.radius
         color: Theme.cardBg
         border.color: Theme.cardBorder
         ColumnLayout {
+            id: thumbCol
             anchors.fill: parent
             anchors.margins: 20
             spacing: 12
