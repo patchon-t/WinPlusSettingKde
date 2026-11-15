@@ -30,7 +30,7 @@ Item {
             height: 12
             lines: Theme.gCheck
             stroke: 1.6
-            color: Theme.onAccent
+            color: Theme.textOnAccent
             opacity: cb.checked ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.durFaster } }
         }

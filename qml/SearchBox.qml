@@ -17,7 +17,7 @@ TextField {
     rightPadding: 34
     selectByMouse: true
     selectionColor: Theme.accent
-    selectedTextColor: Theme.onAccent
+    selectedTextColor: Theme.textOnAccent
 
     background: Rectangle {
         radius: Theme.radius
