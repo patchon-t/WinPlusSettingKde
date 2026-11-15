@@ -10,9 +10,12 @@ Item {
     readonly property int sidePadding: 28
     readonly property int maxContentWidth: 1000
     property string toastText: ""
+    property string query: ""
+    property int sortIdx: 0
+    property int filterIdx: 0
 
     function applyView() {
-        Backend.appsSetView(search.text, sortBox.currentIndex, filterBox.currentIndex)
+        Backend.appsSetView(query, sortIdx, filterIdx)
     }
 
     Component.onCompleted: {
@@ -82,7 +85,7 @@ Item {
                 id: search
                 Layout.fillWidth: true
                 placeholderText: "Search apps"
-                onTextChanged: page.applyView()
+                onTextChanged: { page.query = text; page.applyView() }
             }
 
             RowLayout {
@@ -97,7 +100,7 @@ Item {
                     minWidth: 190
                     model: ["Name (A to Z)", "Name (Z to A)", "Size (large to small)", "Size (small to large)",
                             "Install date (newest first)", "Install date (oldest first)"]
-                    onActivated: page.applyView()
+                    onActivated: { page.sortIdx = currentIndex; page.applyView() }
                 }
                 FText { text: "Filter by:"; color: Theme.textSecondary; Layout.leftMargin: 12 }
                 FluentCombo {
@@ -105,7 +108,7 @@ Item {
                     autoSelect: true
                     minWidth: 170
                     model: ["All sources", "System packages", "Flatpak", "Other"]
-                    onActivated: page.applyView()
+                    onActivated: { page.filterIdx = currentIndex; page.applyView() }
                 }
                 Item { Layout.fillWidth: true }
                 FText {
@@ -124,7 +127,7 @@ Item {
                 anchors.centerIn: parent
                 visible: Backend.appsLoading || Backend.appsShown === 0
                 text: Backend.appsLoading ? "Loading apps..."
-                      : search.text.length ? "We couldn't find any apps matching \"" + search.text + "\"."
+                      : page.query.length ? "We couldn't find any apps matching \"" + page.query + "\"."
                       : "No apps found."
                 color: Theme.textSecondary
             }
