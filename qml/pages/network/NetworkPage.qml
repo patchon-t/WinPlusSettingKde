@@ -3,168 +3,159 @@ import QtQuick.Layouts
 import WinSettings
 import "../.."
 
-KcmListPage {
+// Network & internet: status hero + one card per sub page (Win11 24H2 layout).
+SettingsPage {
     id: page
-    pageTitle: "Network & internet"
-    listTitle: "Advanced"
+    property string pageTitle: "Network & internet"
+    property var items: []
+    crumbs: [pageTitle]
 
-    property string pendingSsid: ""
-    property string toast: ""
-
-    Component.onCompleted: Backend.refreshWifi()
-    Timer { interval: 8000; repeat: true; running: true; onTriggered: if (!Backend.wifiBusy) Backend.refreshWifi() }
-
-    Connections {
-        target: Backend
-        function onWifiResult(ok, message) { page.toast = message; toastTimer.restart() }
+    readonly property string base: "pages/network/"
+    readonly property bool online: Backend.networkType.length > 0
+    readonly property bool hasWifiDevice: {
+        for (let i = 0; i < Backend.netDevices.length; ++i)
+            if (Backend.netDevices[i].type === "wifi") return true
+        return false
     }
-    Timer { id: toastTimer; interval: 5000; onTriggered: page.toast = "" }
-
-    InputDialog {
-        id: pwDialog
-        title: "Connect to " + page.pendingSsid
-        message: "Enter the network security key"
-        placeholder: "Password"
-        password: true
-        acceptText: "Next"
-        onSubmitted: (v) => Backend.wifiConnect(page.pendingSsid, v)
+    readonly property bool hasEthernet: {
+        for (let i = 0; i < Backend.netDevices.length; ++i)
+            if (Backend.netDevices[i].type === "ethernet") return true
+        return false
+    }
+    readonly property var activeWifi: {
+        const l = Backend.wifiNetworks
+        for (let i = 0; i < l.length; ++i) if (l[i].active) return l[i]
+        return null
     }
 
-    function signalIcon(s) {
-        return s >= 75 ? "fl:wifi_1_20_regular" : s >= 50 ? "fl:wifi_2_20_regular"
-             : s >= 25 ? "fl:wifi_3_20_regular" : "fl:wifi_4_20_regular"
+    Component.onCompleted: {
+        Backend.refreshWifi()
+        Backend.refreshNetDevices()
+        Backend.refreshHotspot()
     }
 
-    header: Component {
-        ColumnLayout {
-            spacing: 4
+    NetToast {}
 
-            // status banner (like Win11's big "Connected" header)
-            Rectangle {
+    // ------------------------------------------------------------ status hero
+    Rectangle {
+        Layout.fillWidth: true
+        Layout.bottomMargin: 8
+        implicitHeight: 120
+        radius: Theme.radius
+        color: Theme.cardBg
+        border.color: Theme.cardBorder
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 24
+            anchors.rightMargin: 24
+            spacing: 20
+            Icon {
+                name: Backend.networkType === "wifi" ? "fl:wifi_1_20_regular"
+                      : Backend.networkType === "ethernet" ? "fl:plug_connected_20_regular" : "fl:wifi_off_20_regular"
+                size: 56
+            }
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.bottomMargin: 8
-                implicitHeight: 88
-                radius: Theme.radius
-                color: Theme.cardBg
-                border.color: Theme.cardBorder
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 20
-                    anchors.rightMargin: 20
-                    spacing: 16
-                    Icon {
-                        name: Backend.networkType === "wifi" ? "fl:wifi_1_20_regular"
-                              : Backend.networkType === "ethernet" ? "fl:plug_connected_20_regular" : "fl:wifi_off_20_regular"
-                        size: 40
-                    }
-                    ColumnLayout {
-                        spacing: 2
-                        FText {
-                            text: Backend.networkName.length ? Backend.networkName : "Not connected"
-                            font.pixelSize: Theme.fontSubtitle
-                            font.weight: Font.DemiBold
-                        }
-                        FText {
-                            text: Backend.networkType === "wifi" ? "Wi-Fi · Connected"
-                                  : Backend.networkType === "ethernet" ? "Ethernet · Connected"
-                                  : "You're not connected to any network"
-                            font.pixelSize: Theme.fontCaption
-                            color: Theme.textSecondary
-                        }
-                    }
-                }
-            }
-
-            FText {
-                visible: page.toast.length > 0
-                text: page.toast
-                color: Theme.accentText
-                Layout.bottomMargin: 4
-            }
-
-            ExpanderCard {
-                icon: "fl:wifi_1_20_regular"
-                title: "Wi-Fi"
-                description: Backend.wifiBusy ? "Connecting…" : (Backend.wifiEnabled ? "Show available networks" : "Off")
-                expanded: Backend.wifiEnabled
-                headerControls: [
-                    IconButton {
-                        icon: "fl:arrow_clockwise_20_regular"
-                        visible: Backend.wifiEnabled
-                        onClicked: Backend.rescanWifi()
-                    },
-                    FluentToggle {
-                        checked: Backend.wifiEnabled
-                        onToggled: (c) => Backend.setWifiEnabled(c)
-                    }
-                ]
-
-                Repeater {
-                    model: Backend.wifiEnabled ? Backend.wifiNetworks : []
-                    delegate: Item {
-                        id: net
-                        required property var modelData
-                        required property int index
-                        Layout.fillWidth: true
-                        implicitHeight: 56
-
-                        Rectangle { width: parent.width; height: 1; color: Theme.divider }
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.topMargin: 1
-                            color: nma.containsMouse ? Theme.subtleHover : "transparent"
-                            Behavior on color { ColorAnimation { duration: Theme.durFaster } }
-                        }
-                        MouseArea { id: nma; anchors.fill: parent; hoverEnabled: true }
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 18
-                            anchors.rightMargin: 48
-                            spacing: 0
-                            Icon { name: page.signalIcon(net.modelData.signal); size: 20; Layout.rightMargin: 18 }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 1
-                                FText { text: net.modelData.ssid; Layout.fillWidth: true; elide: Text.ElideRight }
-                                FText {
-                                    text: (net.modelData.active ? "Connected, " : "")
-                                          + (net.modelData.secure ? "Secured" : "Open")
-                                    font.pixelSize: Theme.fontCaption
-                                    color: Theme.textSecondary
-                                }
-                            }
-                            Icon { name: "fl:lock_closed_20_regular"; size: 14; visible: net.modelData.secure; Layout.rightMargin: 12 }
-                            FluentButton {
-                                visible: nma.containsMouse || net.modelData.active
-                                text: net.modelData.active ? "Disconnect" : "Connect"
-                                enabled: !Backend.wifiBusy
-                                onClicked: {
-                                    if (net.modelData.active) {
-                                        Backend.wifiDisconnect()
-                                    } else if (net.modelData.secure && !net.modelData.known) {
-                                        page.pendingSsid = net.modelData.ssid
-                                        pwDialog.open()
-                                    } else {
-                                        Backend.wifiConnect(net.modelData.ssid, "")
-                                    }
-                                }
-                            }
-                            IconButton {
-                                visible: net.modelData.known && nma.containsMouse
-                                icon: "fl:delete_20_regular"
-                                Layout.leftMargin: 4
-                                onClicked: Backend.wifiForget(net.modelData.ssid)
-                            }
-                        }
-                    }
+                spacing: 2
+                FText {
+                    text: page.online ? Backend.networkName : "Not connected"
+                    font.pixelSize: Theme.fontSubtitle
+                    font.weight: Font.DemiBold
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
                 }
                 FText {
-                    visible: Backend.wifiEnabled && Backend.wifiNetworks.length === 0
-                    text: "Looking for networks…"
+                    text: !page.online ? "You're not connected to any network"
+                          : Backend.networkType === "ethernet" ? "Connected, secured"
+                          : (page.activeWifi && !page.activeWifi.secure ? "Connected, open" : "Connected, secured")
+                    font.pixelSize: Theme.fontCaption
                     color: Theme.textSecondary
-                    Layout.margins: 18
                 }
             }
+            FluentButton {
+                text: "Properties"
+                enabled: page.online
+                onClicked: Router.open(page.base + (Backend.networkType === "wifi" ? "NetConnectionPage.qml" : "EthernetPage.qml"),
+                                       { connName: Backend.networkName })
+            }
+            FluentButton {
+                text: "Data usage"
+                enabled: false
+                opacity: 0.6
+            }
         }
+    }
+
+    // ------------------------------------------------------------ cards
+    SettingsCard {
+        icon: "fl:wifi_1_20_regular"
+        title: "Wi-Fi"
+        description: Backend.wifiBusy ? "Connecting…" : "Connect, manage known networks, metered network"
+        clickable: true
+        enabled: page.hasWifiDevice || Backend.wifiEnabled
+        onClicked: Router.open(page.base + "WifiPage.qml", {})
+        FluentToggle {
+            checked: Backend.wifiEnabled
+            onToggled: (v) => Backend.setWifiEnabled(v)
+        }
+    }
+
+    SettingsCard {
+        visible: page.hasEthernet
+        icon: "fl:plug_connected_20_regular"
+        title: "Ethernet"
+        description: "Authentication, IP and DNS settings, metered network"
+        clickable: true
+        onClicked: Router.open(page.base + "EthernetPage.qml", {})
+    }
+
+    SettingsCard {
+        icon: "fl:lock_shield_20_regular"
+        title: "VPN"
+        description: "Add, connect, manage"
+        clickable: true
+        onClicked: Router.open(page.base + "VpnPage.qml", {})
+    }
+
+    SettingsCard {
+        icon: "fl:phone_laptop_20_regular"
+        title: "Mobile hotspot"
+        description: "Share your internet connection over Wi-Fi"
+        clickable: true
+        enabled: page.hasWifiDevice
+        onClicked: Router.open(page.base + "HotspotPage.qml", {})
+        FluentToggle {
+            checked: Backend.hotspotOn
+            enabled: !Backend.netBusy
+            onToggled: (v) => Backend.setHotspot(v)
+        }
+    }
+
+    SettingsCard {
+        icon: "fl:airplane_20_regular"
+        title: "Airplane mode"
+        description: "Stop all wireless communication"
+        clickable: true
+        onClicked: Router.open(page.base + "AirplanePage.qml", {})
+        FluentToggle {
+            checked: Backend.airplaneMode
+            onToggled: (v) => Backend.setAirplaneMode(v)
+        }
+    }
+
+    SettingsCard {
+        icon: "fl:globe_20_regular"
+        title: "Proxy"
+        description: "Proxy server for Wi-Fi and Ethernet connections"
+        clickable: true
+        onClicked: Router.open(page.base + "ProxyPage.qml", {})
+    }
+
+    SettingsCard {
+        icon: "fl:wifi_settings_20_regular"
+        title: "Advanced network settings"
+        description: "View all network adapters, network reset"
+        clickable: true
+        onClicked: Router.open(page.base + "AdvancedNetworkPage.qml", {})
     }
 }
