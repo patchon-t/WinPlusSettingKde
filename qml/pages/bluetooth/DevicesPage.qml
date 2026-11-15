@@ -104,7 +104,7 @@ SettingsPage {
     SettingsCard {
         icon: "fl:send_20_regular"
         title: "Send or receive files via Bluetooth"
-        description: "Send files to a paired device. Incoming files are received automatically while Bluetooth is on."
+        description: "Send files to a paired device"
         enabled: Backend.bluetoothOn
         FluentButton { text: "Send files"; onClicked: Backend.bluetoothSendFiles() }
     }

@@ -22,10 +22,10 @@ function deviceIcon(icon) {
 }
 
 // "Connected" / "Paired" (+ battery)
-function deviceStatus(d) {
+function deviceStatus(d, compact) {
     var s = d.connected ? "Connected" : "Paired"
     if (d.battery >= 0)
-        s += " · " + d.battery + "% battery"
+        s += " · " + d.battery + (compact ? "%" : "% battery")
     return s
 }
 

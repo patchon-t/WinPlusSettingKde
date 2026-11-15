@@ -297,7 +297,10 @@ class BluetoothMixin:
         self._bt_scan_tick()
 
     def _bt_scan_finished(self, *_):
-        self._bt_scan_timer.stop()
+        try:
+            self._bt_scan_timer.stop()
+        except RuntimeError:        # app is closing
+            return
         p, self._bt_scan_proc = self._bt_scan_proc, None
         if p is not None:
             try:

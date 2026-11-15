@@ -62,7 +62,7 @@ Rectangle {
         spacing: 1
         FText { text: tile.device.name; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
         FText {
-            text: U.deviceStatus(tile.device)
+            text: U.deviceStatus(tile.device, true)
             font.pixelSize: Theme.fontCaption
             color: Theme.textSecondary
             Layout.fillWidth: true

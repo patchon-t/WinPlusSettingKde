@@ -7,7 +7,7 @@ import "../.."
 SettingsPage {
     id: page
     property string printerName: ""
-    crumbs: ["Bluetooth & devices", "Printers & scanners", printerName, "Print queue"]
+    crumbs: ["Printers & scanners", printerName, "Print queue"]
 
     Component.onCompleted: Backend.refreshPrintJobs(printerName)
     Timer { interval: 3000; repeat: true; running: true; onTriggered: Backend.refreshPrintJobs(page.printerName) }
