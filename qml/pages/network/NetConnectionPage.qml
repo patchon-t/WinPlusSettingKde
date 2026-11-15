@@ -7,9 +7,12 @@ import "../.."
 SettingsPage {
     id: page
     property string connName: ""
-    crumbs: ["Network & internet", "Wi-Fi", "Manage known networks", connName.length ? connName : "Network"]
+    crumbs: ["Wi-Fi", "Manage known networks", connName.length ? connName : "Network"]
+
+    property alias connForm: form
 
     NetConnForm {
+        id: form
         connName: page.connName
         isWifi: true
     }

@@ -34,6 +34,9 @@ ColumnLayout {
         }
     }
 
+    function editIp() { ipDlg.openFor() }
+    function editDns() { dnsDlg.openFor() }
+
     NetToast {}
 
     // ---- connect / disconnect
@@ -73,7 +76,7 @@ ColumnLayout {
         visible: form.isWifi
         icon: "fl:communication_20_regular"
         title: "Random hardware addresses"
-        description: "Use a different MAC address when connecting to this network. Applies the next time you connect."
+        description: "Use a different hardware address for this network"
         enabled: form.ready
         FluentCombo {
             model: ["Off", "On", "Fixed per network"]
@@ -98,7 +101,7 @@ ColumnLayout {
         title: "IP assignment"
         description: !form.ready ? "" : form.manualIp ? "Manual" : "Automatic (DHCP)"
         enabled: form.ready
-        FluentButton { text: "Edit"; onClicked: ipDlg.openFor() }
+        FluentButton { text: "Edit"; onClicked: form.editIp() }
     }
 
     SettingsCard {
@@ -106,11 +109,12 @@ ColumnLayout {
         title: "DNS server assignment"
         description: !form.ready ? "" : form.manualDns ? "Manual" : "Automatic (DHCP)"
         enabled: form.ready
-        FluentButton { text: "Edit"; onClicked: dnsDlg.openFor() }
+        FluentButton { text: "Edit"; onClicked: form.editDns() }
     }
 
-    SectionHeader { text: "Properties" }
+    SectionHeader { text: "Properties"; visible: form.ready }
     NetInfoCard {
+        visible: form.ready
         rows: !form.ready ? [] : (form.isWifi ? [
             { label: "SSID", value: form.c.ssid },
             { label: "Security type", value: form.secName(form.c.keyMgmt) }

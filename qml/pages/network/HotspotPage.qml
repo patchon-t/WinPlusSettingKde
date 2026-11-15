@@ -16,14 +16,22 @@ SettingsPage {
     SettingsCard {
         icon: "fl:phone_laptop_20_regular"
         title: "Mobile hotspot"
-        description: "Share your internet connection with other devices over Wi-Fi. This uses your Wi-Fi adapter, so connect to the internet another way (for example Ethernet)."
-        implicitHeight: 84
+        description: "Share your internet connection with other devices over Wi-Fi"
         enabled: Backend.wifiEnabled
         FluentToggle {
             checked: Backend.hotspotOn
             enabled: !Backend.netBusy
             onToggled: (v) => Backend.setHotspot(v)
         }
+    }
+
+    FText {
+        text: "The hotspot uses your Wi-Fi adapter, so connect to the internet another way, for example with Ethernet."
+        font.pixelSize: Theme.fontCaption
+        color: Theme.textSecondary
+        wrapMode: Text.WordWrap
+        Layout.fillWidth: true
+        Layout.topMargin: 4
     }
 
     SectionHeader { text: "Properties" }

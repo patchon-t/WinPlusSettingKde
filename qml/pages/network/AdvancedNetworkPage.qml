@@ -52,14 +52,14 @@ SettingsPage {
     SettingsCard {
         icon: "fl:share_20_regular"
         title: "Advanced sharing settings"
-        description: "Not available on Linux yet"
+        description: "Not available yet"
         enabled: false
     }
 
     SettingsCard {
         icon: "fl:data_usage_20_regular"
         title: "Data usage"
-        description: "Not available on Linux yet"
+        description: "Not available yet"
         enabled: false
     }
 
