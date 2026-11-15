@@ -39,7 +39,7 @@ def main():
 
     app = QGuiApplication(sys.argv)
     app.setDesktopFileName("io.github.patchon_t.WinPlusSettingKde")
-    app.setWindowIcon(QIcon.fromTheme("preferences-system"))
+    app.setWindowIcon(QIcon(str(ROOT / "assets" / "icon.svg")))
 
     family = pick_font()
     if family:

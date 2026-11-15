@@ -6,23 +6,23 @@ Built with **PySide6 + QML**. It doesn't reimplement Plasma's settings: it chang
 Plasma config through the tools Plasma already ships (`kwriteconfig6`, `plasma-apply-*`,
 `kscreen-doctor`, D-Bus), and opens the stock KCM modules for pages that aren't rebuilt yet.
 
-## Run
+## Install
 
 ```bash
+sudo apt install python3-pyside6.qtquick python3-pyside6.qtquickcontrols2 python3-pyside6.qtqml   # Kubuntu/Debian
 git clone https://github.com/patchon-t/WinPlusSettingKde
 cd WinPlusSettingKde
-./run.sh            # makes a .venv with PySide6 on first launch
+./install.sh
 ```
 
-Or use your distro's PySide6 (`pyside6` on Arch, `python3-pyside6.*` on Debian/Ubuntu) and run
-`python3 main.py`.
+Then open the app launcher and search **Settings 11**. You can pin it to the taskbar from there.
+No terminal needed after that.
 
-### Install to the app menu (optional)
+- **Update:** `git pull && ./install.sh`
+- **Uninstall:** `./uninstall.sh`
+- **Run without installing:** `./run.sh`
 
-```bash
-mkdir -p ~/.local/share && cp -r . ~/.local/share/WinPlusSettingKde
-cp io.github.patchon_t.WinPlusSettingKde.desktop ~/.local/share/applications/
-```
+It installs to `~/.local/share/WinPlusSettingKde` (no root).
 
 ## What works
 

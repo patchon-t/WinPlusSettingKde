@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Settings (Win11 style)
-Comment=Windows 11 style settings app for KDE Plasma
-Exec=sh -c '"$HOME/.local/share/WinPlusSettingKde/run.sh"'
-Icon=preferences-system
-Categories=Settings;Qt;KDE;
