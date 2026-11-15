@@ -12,6 +12,7 @@ FluentToggle {
     property bool fallback: false
     property bool kaccess: file === "kaccessrc"
     property bool invert: false
+    property string effect: ""   // set: write [Effect-<effect>] and reconfigureEffect
     readonly property bool stored: {
         Backend.a11yCfgRev
         const v = Backend.a11yCfg(file, group, key, fallback ? "true" : "false") === "true"
@@ -20,7 +21,9 @@ FluentToggle {
     checked: stored
     onToggled: (c) => {
         const v = (invert ? !c : c) ? "true" : "false"
-        if (kaccess)
+        if (effect.length)
+            Backend.a11yEffectCfgSet(effect, key, v, "bool")
+        else if (kaccess)
             Backend.a11yKaccessSet(group, key, v, "bool")
         else
             Backend.a11yCfgSet(file, group, key, v, "bool")
