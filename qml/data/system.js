@@ -13,7 +13,12 @@ var entry = H.list("System", "fl:laptop_20_color", [
         { icon: "fl:developer_board_20_regular", title: "Graphics", desc: "Variable refresh rate, screen tearing", page: P + "GraphicsPage.qml" },
         { icon: "fl:resize_20_regular", title: "Custom scaling", desc: "Enter a custom scaling size", page: P + "CustomScalingPage.qml" }
       ] },
-    { icon: "fl:speaker_2_20_regular", title: "Sound", desc: "Volume levels, output, input, sound devices", page: P + "SoundPage.qml" },
+    { icon: "fl:speaker_2_20_regular", title: "Sound", desc: "Volume levels, output, input, sound devices", page: P + "SoundPage.qml",
+      items: [
+        { icon: "fl:headphones_20_regular", title: "All sound devices", desc: "Turn devices on or off, troubleshoot, other options", page: P + "SoundDevicesPage.qml" },
+        { icon: "fl:speaker_2_20_regular", title: "Sound device properties", desc: "Volume, balance, port, allow or block a device", page: P + "SoundDevicePage.qml", props: { kind: "sink", name: "alsa_output.pci-0000_00_1f.3.analog-stereo", card: "alsa_card.pci-0000_00_1f.3" } },
+        { icon: "fl:options_20_regular", title: "Volume mixer", desc: "App volume mix, app input & output devices", page: P + "VolumeMixerPage.qml" }
+      ] },
     { icon: "fl:battery_charge_20_regular", title: "Power & battery", desc: "Screen and sleep, battery usage, power mode", page: P + "PowerPage.qml" },
     { icon: "fl:info_20_regular", title: "About", desc: "Device specifications, rename PC, OS and Plasma versions", page: P + "AboutPage.qml" }
 ])

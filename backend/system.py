@@ -113,6 +113,7 @@ class SystemMixin:
         self._sink_idx = self._source_idx = -1
         self._out_vol = self._in_vol = 0
         self._out_mute = self._in_mute = False
+        self._sys_init_sound()
         self._bat_present, self._bat_pct, self._bat_status = False, 0, ""
         self._profiles, self._profile_idx = [], -1
         self._sys_night_status = ""
@@ -687,34 +688,122 @@ class SystemMixin:
                     lambda *_: self.hostChanged.emit(), timeout_ms=120000)
 
     # ---------------------------------------------------- Sound (PipeWire/Pulse via pactl)
+    def _sys_init_sound(self):
+        self._sys_snd_raw = {"sinks": [], "sources": [], "cards": [], "sink-inputs": [], "source-outputs": []}
+        self._sys_def_sink = self._sys_def_source = ""
+        self._sys_apps: list = []
+        self._sys_cards: list = []
+        self._sys_sink_devs: list = []
+        self._sys_source_devs: list = []
+
+    @staticmethod
+    def _sys_json_list(out: str) -> list:
+        try:
+            data = json.loads(out) if out.strip() else []
+        except json.JSONDecodeError:
+            return []
+        return data if isinstance(data, list) else []
+
+    @staticmethod
+    def _sys_channels(d: dict) -> dict:
+        """{channel name: percent} from a pactl JSON device / stream."""
+        res = {}
+        for ch, v in (d.get("volume") or {}).items():
+            if not isinstance(v, dict):
+                continue
+            pct = str(v.get("value_percent", "")).rstrip("%")
+            try:
+                res[ch] = int(pct)
+            except ValueError:
+                try:
+                    res[ch] = round(int(v.get("value", 0)) * 100 / 65536)
+                except (TypeError, ValueError):
+                    res[ch] = 0
+        return res
+
+    def _sys_dev(self, kind: str, d: dict) -> dict:
+        chans = self._sys_channels(d)
+        vals = list(chans.values())
+        avg = round(sum(vals) / len(vals)) if vals else 0
+        left = next((v for k, v in chans.items() if "left" in k), None)
+        right = next((v for k, v in chans.items() if "right" in k), None)
+        balance = 0
+        if left is not None and right is not None and max(left, right) > 0:
+            balance = round((right - left) * 100 / max(left, right))
+        ports = [p for p in (d.get("ports") or []) if p.get("availability") != "not available"]
+        names = [p.get("name", "") for p in ports]
+        active = d.get("active_port") or ""
+        name = d.get("name", "")
+        return {
+            "kind": kind, "name": name, "index": d.get("index", -1),
+            "desc": d.get("description") or name,
+            "volume": min(avg, 150), "mute": bool(d.get("mute")),
+            "balance": balance, "canBalance": left is not None and right is not None,
+            "channels": list(chans.keys()),
+            "ports": [p.get("description") or p.get("name", "") for p in ports],
+            "portNames": names, "portIndex": names.index(active) if active in names else -1,
+            "card": self._sys_card_for(name),
+        }
+
+    def _sys_card_for(self, dev_name: str) -> str:
+        """Card that owns a sink/source (matched by the shared bus/address part of the name)."""
+        tail = dev_name.split(".", 1)[1] if "." in dev_name else dev_name
+        best = ""
+        for c in self._sys_snd_raw["cards"]:
+            cn = c.get("name", "")
+            ctail = cn.split(".", 1)[1] if "." in cn else cn
+            if ctail and tail.startswith(ctail) and len(ctail) > len(best):
+                best = cn
+        return best
+
+    def _sys_snd_rebuild(self):
+        raw = self._sys_snd_raw
+        old_state = (self._sinks, self._sources, self._sys_cards)
+        self._sys_cards = []
+        for c in raw["cards"]:
+            profs = c.get("profiles") or {}
+            usable = [(p.get("priority", 0), n) for n, p in profs.items()
+                      if n != "off" and p.get("available", True) not in (False, "no")]
+            self._sys_cards.append({
+                "name": c.get("name", ""), "desc": (c.get("properties") or {}).get("device.description")
+                or c.get("description") or c.get("name", ""),
+                "disabled": c.get("active_profile") == "off",
+                "best": max(usable)[1] if usable else ""})
+        self._sinks = [self._sys_dev("sink", d) for d in raw["sinks"]
+                       if d.get("name") and not d["name"].endswith(".monitor")]
+        self._sources = [self._sys_dev("source", d) for d in raw["sources"]
+                         if d.get("name") and not d["name"].endswith(".monitor")]
+        for lst, dflt in ((self._sinks, self._sys_def_sink), (self._sources, self._sys_def_source)):
+            for d in lst:
+                d["isDefault"] = d["name"] == dflt
+        self._sink_idx = next((i for i, d in enumerate(self._sinks) if d["isDefault"]), -1)
+        self._source_idx = next((i for i, d in enumerate(self._sources) if d["isDefault"]), -1)
+        self._out_vol = self._sinks[self._sink_idx]["volume"] if self._sink_idx >= 0 else 0
+        self._in_vol = self._sources[self._source_idx]["volume"] if self._source_idx >= 0 else 0
+        self._out_mute = self._sinks[self._sink_idx]["mute"] if self._sink_idx >= 0 else False
+        self._in_mute = self._sources[self._source_idx]["mute"] if self._source_idx >= 0 else False
+        self._sys_sink_devs, self._sys_source_devs = self._sinks, self._sources
+        if old_state != (self._sinks, self._sources, self._sys_cards):
+            self.soundChanged.emit()
+
     @Slot()
     def refreshSound(self):
-        def devices(kind):
-            raw = run(["pactl", "-f", "json", "list", kind])
-            try:
-                items = json.loads(raw) if raw else []
-            except json.JSONDecodeError:
-                items = []
-            out = []
-            for d in items:
-                name = d.get("name", "")
-                if not name or name.endswith(".monitor"):
-                    continue
-                out.append({"name": name, "desc": d.get("description") or name})
-            return out
+        def store(key):
+            def cb(ok, out):
+                self._sys_snd_raw[key] = self._sys_json_list(out) if ok else []
+                self._sys_snd_rebuild()
+            return cb
 
-        def vol(kind):
-            m = re.search(r"(\d+)%", run(["pactl", f"get-{kind}-volume", f"@DEFAULT_{kind.upper()}@"]))
-            return int(m.group(1)) if m else 0
-
-        self._sinks, self._sources = devices("sinks"), devices("sources")
-        dsink, dsrc = run(["pactl", "get-default-sink"]), run(["pactl", "get-default-source"])
-        self._sink_idx = next((i for i, d in enumerate(self._sinks) if d["name"] == dsink), -1)
-        self._source_idx = next((i for i, d in enumerate(self._sources) if d["name"] == dsrc), -1)
-        self._out_vol, self._in_vol = vol("sink"), vol("source")
-        self._out_mute = run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"]).endswith("yes")
-        self._in_mute = run(["pactl", "get-source-mute", "@DEFAULT_SOURCE@"]).endswith("yes")
-        self.soundChanged.emit()
+        def dflt(attr):
+            def cb(ok, out):
+                setattr(self, attr, out.strip() if ok else "")
+                self._sys_snd_rebuild()
+            return cb
+        self._async(["pactl", "-f", "json", "list", "cards"], store("cards"))
+        self._async(["pactl", "-f", "json", "list", "sinks"], store("sinks"))
+        self._async(["pactl", "-f", "json", "list", "sources"], store("sources"))
+        self._async(["pactl", "get-default-sink"], dflt("_sys_def_sink"))
+        self._async(["pactl", "get-default-source"], dflt("_sys_def_source"))
 
     sinks = Property("QVariantList", lambda s: [d["desc"] for d in s._sinks], notify=soundChanged)
     sources = Property("QVariantList", lambda s: [d["desc"] for d in s._sources], notify=soundChanged)
@@ -725,6 +814,10 @@ class SystemMixin:
     outputMuted = Property(bool, lambda s: s._out_mute, notify=soundChanged)
     inputMuted = Property(bool, lambda s: s._in_mute, notify=soundChanged)
     soundAvailable = Property(bool, lambda s: has("pactl"), constant=True)
+    sysSinkDevices = Property("QVariantList", lambda s: s._sys_sink_devs, notify=soundChanged)
+    sysSourceDevices = Property("QVariantList", lambda s: s._sys_source_devs, notify=soundChanged)
+    sysSoundCards = Property("QVariantList", lambda s: s._sys_cards, notify=soundChanged)
+    sysMixerApps = Property("QVariantList", lambda s: s._sys_apps, notify=soundChanged)
 
     @Slot(int)
     def setOutputDevice(self, i: int):
@@ -759,6 +852,121 @@ class SystemMixin:
         self._in_mute = m
         self.soundChanged.emit()
         spawn(["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1" if m else "0"])
+
+    # --- per-device (device properties page)
+    @staticmethod
+    def _sys_balance_args(dev: dict, pct: int, balance: int) -> list:
+        left = round(pct * (1 - max(0, balance) / 100))
+        right = round(pct * (1 + min(0, balance) / 100))
+        out = []
+        for ch in dev.get("channels") or [""]:
+            out.append(f"{left if 'left' in ch else right if 'right' in ch else pct}%")
+        return out or [f"{pct}%"]
+
+    def _sys_find_dev(self, kind: str, name: str):
+        lst = self._sinks if kind == "sink" else self._sources
+        return next((d for d in lst if d["name"] == name), None)
+
+    @Slot(str, str, int, int)
+    def sysSetDeviceVolume(self, kind: str, name: str, pct: int, balance: int):
+        dev = self._sys_find_dev(kind, name)
+        if not dev:
+            return
+        dev["volume"], dev["balance"] = pct, balance
+        self.soundChanged.emit()
+        self._later(f"sysdv{kind}{name}", ["pactl", f"set-{kind}-volume", name,
+                                           *self._sys_balance_args(dev, pct, balance)])
+
+    @Slot(str, str, bool)
+    def sysSetDeviceMute(self, kind: str, name: str, mute: bool):
+        dev = self._sys_find_dev(kind, name)
+        if dev:
+            dev["mute"] = mute
+            self.soundChanged.emit()
+        spawn(["pactl", f"set-{kind}-mute", name, "1" if mute else "0"])
+
+    @Slot(str, str, int)
+    def sysSetDevicePort(self, kind: str, name: str, port_index: int):
+        dev = self._sys_find_dev(kind, name)
+        if dev and 0 <= port_index < len(dev["portNames"]):
+            self._async(["pactl", f"set-{kind}-port", name, dev["portNames"][port_index]],
+                        lambda *_: self.refreshSound())
+
+    @Slot(str, str)
+    def sysMakeDefault(self, kind: str, name: str):
+        self._async(["pactl", f"set-default-{kind}", name], lambda *_: self.refreshSound())
+
+    @Slot(str)
+    def sysDisableCard(self, card: str):
+        if card:
+            self._async(["pactl", "set-card-profile", card, "off"], lambda *_: self.refreshSound())
+
+    @Slot(str)
+    def sysEnableCard(self, card: str):
+        best = next((c["best"] for c in self._sys_cards if c["name"] == card), "")
+        if best:
+            self._async(["pactl", "set-card-profile", card, best], lambda *_: self.refreshSound())
+
+    # --- volume mixer
+    @Slot()
+    def sysRefreshMixer(self):
+        def store(key):
+            def cb(ok, out):
+                self._sys_snd_raw[key] = self._sys_json_list(out) if ok else []
+                self._sys_mixer_rebuild()
+            return cb
+        self.refreshSound()
+        self._async(["pactl", "-f", "json", "list", "sink-inputs"], store("sink-inputs"))
+        self._async(["pactl", "-f", "json", "list", "source-outputs"], store("source-outputs"))
+
+    def _sys_mixer_rebuild(self):
+        apps = []
+        for kind, key, devkey, devs in (("out", "sink-inputs", "sink", self._sinks),
+                                        ("in", "source-outputs", "source", self._sources)):
+            idx_by_dev = {}
+            for i, d in enumerate(devs):
+                idx_by_dev[d["index"]] = i
+            for s in self._sys_snd_raw[key]:
+                pr = s.get("properties") or {}
+                name = pr.get("application.name") or pr.get("media.name") or ""
+                if not name or pr.get("media.name") == "Peak detect" or pr.get("application.id") == "org.PulseAudio.pavucontrol":
+                    continue
+                ch = self._sys_channels(s)
+                avg = round(sum(ch.values()) / len(ch)) if ch else 0
+                apps.append({
+                    "kind": kind, "index": s.get("index", -1), "name": name,
+                    "icon": pr.get("application.icon_name") or "",
+                    "desc": pr.get("media.name") or "",
+                    "volume": min(avg, 150), "mute": bool(s.get("mute")),
+                    "device": idx_by_dev.get(s.get(devkey), -1)})
+        if apps != self._sys_apps:
+            self._sys_apps = apps
+            self.soundChanged.emit()
+
+    @Slot(str, int, int)
+    def sysSetAppVolume(self, kind: str, index: int, pct: int):
+        sub = "sink-input" if kind == "out" else "source-output"
+        for a in self._sys_apps:
+            if a["kind"] == kind and a["index"] == index:
+                a["volume"] = pct          # no emit: would rebuild the slider being dragged
+        self._later(f"sysapp{kind}{index}", ["pactl", f"set-{sub}-volume", str(index), f"{pct}%"])
+
+    @Slot(str, int, bool)
+    def sysSetAppMute(self, kind: str, index: int, mute: bool):
+        sub = "sink-input" if kind == "out" else "source-output"
+        for a in self._sys_apps:
+            if a["kind"] == kind and a["index"] == index:
+                a["mute"] = mute
+        self.soundChanged.emit()
+        spawn(["pactl", f"set-{sub}-mute", str(index), "1" if mute else "0"])
+
+    @Slot(str, int, int)
+    def sysMoveApp(self, kind: str, index: int, device: int):
+        devs = self._sinks if kind == "out" else self._sources
+        if 0 <= device < len(devs):
+            sub = "move-sink-input" if kind == "out" else "move-source-output"
+            self._async(["pactl", sub, str(index), devs[device]["name"]],
+                        lambda *_: self.sysRefreshMixer())
 
     # ---------------------------------------------------- Power & battery
     PROFILE_LABELS = {"power-saver": "Best power efficiency", "balanced": "Balanced",
