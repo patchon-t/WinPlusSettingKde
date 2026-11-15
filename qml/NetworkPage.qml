@@ -113,6 +113,7 @@ KcmListPage {
                             anchors.fill: parent
                             anchors.topMargin: 1
                             color: nma.containsMouse ? Theme.subtleHover : "transparent"
+                            Behavior on color { ColorAnimation { duration: Theme.durFaster } }
                         }
                         MouseArea { id: nma; anchors.fill: parent; hoverEnabled: true }
                         RowLayout {

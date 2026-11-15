@@ -68,6 +68,12 @@ TextField {
         padding: 4
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
         background: FlyoutBackground {}
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFaster }
+            NumberAnimation { property: "y"; from: f.height - 12; to: f.height + 4; duration: Theme.durNormal
+                easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+        }
+        exit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster } }
         contentItem: ListView {
             id: list
             implicitHeight: Math.min(contentHeight, 360)
@@ -81,6 +87,7 @@ TextField {
                 height: 40
                 radius: Theme.radius
                 color: rma.containsMouse || ListView.isCurrentItem ? Theme.subtleHover : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.durFaster } }
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 12

@@ -41,6 +41,8 @@ It installs to `~/.local/share/WinPlusSettingKde` (no root).
 Everything else still opens the matching KDE settings module, until it gets a native page.
 Pairing a *new* Bluetooth device still uses KDE's wizard.
 
+**Motion** follows WinUI: section switch slides up + fades in, opening a sub page zooms in (drill-in) and Back zooms out, the nav pill stretches between items, combo lists unroll from the selected item, dialogs zoom in, and hover states fade (83 ms). Timings live in `Theme.qml` (`dur*`, `entranceOffset`, curves).
+
 Search (Ctrl+F) covers the nav, every list entry and the settings inside the custom pages.
 
 ## Known limits / best-effort

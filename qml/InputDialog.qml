@@ -22,6 +22,17 @@ Popup {
     onOpened: { field.text = ""; field.forceActiveFocus() }
     Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.3) }
     background: FlyoutBackground {}
+    enter: Transition {
+        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast
+            easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+        NumberAnimation { property: "scale"; from: 1.05; to: 1; duration: Theme.durNormal
+            easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+    }
+    exit: Transition {
+        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
+        NumberAnimation { property: "scale"; from: 1; to: 1.05; duration: Theme.durFast
+            easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.accelerate }
+    }
 
     function accept() {
         dlg.submitted(field.text)

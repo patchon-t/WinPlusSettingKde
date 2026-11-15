@@ -23,6 +23,7 @@ Button {
                ? (b.pressed ? Theme.accentPressed : b.hovered ? Theme.accentHover : Theme.accent)
                : (!b.enabled ? Theme.controlBgDisabled : b.pressed ? Theme.controlBgPressed
                   : b.hovered ? Theme.controlBgHover : Theme.controlBg)
+        Behavior on color { ColorAnimation { duration: Theme.durFaster } }
         border.color: b.accent ? "transparent" : Theme.controlBorder
         Rectangle {  // Fluent "elevation" bottom edge
             visible: !b.accent && !Theme.dark && !b.pressed

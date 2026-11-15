@@ -57,6 +57,17 @@ QtObject {
     readonly property int fontSubtitle: 20
     readonly property int fontTitle: 28
 
+    // ---- motion (WinUI timings + curves)
+    readonly property int durFaster: 83      // hover / pressed color fades
+    readonly property int durFast: 167       // toggles, small moves, exits
+    readonly property int durNormal: 250     // dialogs, flyouts
+    readonly property int durSlow: 333       // drill-in, expanders
+    readonly property int durPage: 400       // nav section entrance
+    readonly property int entranceOffset: 100  // px the new section slides up from
+    readonly property var decelerate: [0, 0, 0, 1, 1, 1]     // "fast out, slow in" (entering)
+    readonly property var accelerate: [1, 0, 1, 1, 1, 1]     // exiting
+    readonly property var standard: [0.8, 0, 0.2, 1, 1, 1]   // moving on screen
+
     // ---- vector glyphs (16x16 grid, used by Glyph.qml)
     readonly property var gChevronRight: [[[6, 3], [11, 8], [6, 13]]]
     readonly property var gChevronDown: [[[3, 6], [8, 11], [13, 6]]]

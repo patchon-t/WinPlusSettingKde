@@ -6,6 +6,7 @@ Item {
     property string icon
     property string text
     property bool selected: false
+    readonly property bool pressed: ma.pressed   // NavPane shrinks the pill while pressed
     signal clicked()
     implicitHeight: 36
 
@@ -14,15 +15,7 @@ Item {
         radius: Theme.radius
         color: ma.pressed ? Theme.subtlePressed
                : (root.selected || ma.containsMouse) ? Theme.subtleHover : "transparent"
-    }
-    Rectangle {  // accent pill
-        width: 3
-        radius: 1.5
-        height: root.selected ? (ma.pressed ? 10 : 16) : 0
-        visible: height > 0
-        anchors.verticalCenter: parent.verticalCenter
-        color: Theme.accent
-        Behavior on height { NumberAnimation { duration: 167; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: Theme.durFaster } }
     }
     Icon {
         name: root.icon

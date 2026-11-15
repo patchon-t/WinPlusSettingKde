@@ -18,6 +18,7 @@ Rectangle {
     radius: Theme.radius
     color: clickable && ma.pressed ? Theme.cardBgPressed
            : clickable && ma.containsMouse ? Theme.cardBgHover : Theme.cardBg
+    Behavior on color { ColorAnimation { duration: Theme.durFaster } }
     border.color: Theme.cardBorder
     opacity: enabled ? 1 : 0.5
 

@@ -12,6 +12,7 @@ Rectangle {
     implicitHeight: 32
     radius: Theme.radius
     color: ma.pressed ? Theme.subtlePressed : ma.containsMouse ? Theme.subtleHover : "transparent"
+    Behavior on color { ColorAnimation { duration: Theme.durFaster } }
     opacity: enabled ? 1 : 0.4
     Icon { anchors.centerIn: parent; name: b.icon; size: b.iconSize }
     MouseArea {

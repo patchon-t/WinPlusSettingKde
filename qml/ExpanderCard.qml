@@ -21,6 +21,7 @@ ColumnLayout {
         implicitHeight: Math.max(ex.description.length ? 68 : 56, hrow.implicitHeight + 24)
         radius: Theme.radius
         color: hma.pressed ? Theme.cardBgPressed : hma.containsMouse ? Theme.cardBgHover : Theme.cardBg
+        Behavior on color { ColorAnimation { duration: Theme.durFaster } }
         border.color: Theme.cardBorder
 
         // square the bottom corners while open so header + body join
@@ -74,13 +75,14 @@ ColumnLayout {
                 implicitHeight: 32
                 radius: Theme.radius
                 color: chevMa.containsMouse ? Theme.subtleHover : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.durFaster } }
                 Glyph {
                     anchors.centerIn: parent
                     width: 12
                     height: 12
                     lines: Theme.gChevronDown
                     rotation: ex.expanded ? 180 : 0
-                    Behavior on rotation { NumberAnimation { duration: 167; easing.type: Easing.OutCubic } }
+                    Behavior on rotation { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.standard } }
                 }
                 MouseArea {
                     id: chevMa
@@ -96,7 +98,10 @@ ColumnLayout {
         id: bodyBox
         Layout.fillWidth: true
         implicitHeight: ex.expanded ? body.implicitHeight : 0
-        Behavior on implicitHeight { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        Behavior on implicitHeight {
+            NumberAnimation { duration: ex.expanded ? Theme.durSlow : Theme.durFast
+                easing.type: Easing.BezierSpline; easing.bezierCurve: ex.expanded ? Theme.decelerate : Theme.accelerate }
+        }
         visible: implicitHeight > 0
         clip: true
         radius: Theme.radius
@@ -117,6 +122,10 @@ ColumnLayout {
             id: body
             width: parent.width
             spacing: 0
+            // content slides down out of the header while the box grows
+            y: ex.expanded ? 0 : -Math.min(implicitHeight, 60)
+            Behavior on y { NumberAnimation { duration: ex.expanded ? Theme.durSlow : Theme.durFast
+                easing.type: Easing.BezierSpline; easing.bezierCurve: ex.expanded ? Theme.decelerate : Theme.accelerate } }
         }
     }
 }

@@ -32,6 +32,7 @@ Item {
         color: t.checked
                ? (ma.pressed ? Theme.accentPressed : ma.containsMouse ? Theme.accentHover : Theme.accent)
                : (ma.pressed ? Theme.subtlePressed : ma.containsMouse ? Theme.subtleHover : Theme.toggleOffBg)
+        Behavior on color { ColorAnimation { duration: Theme.durFaster } }
         border.width: t.checked ? 0 : 1
         border.color: Theme.strongStroke
 
@@ -44,7 +45,7 @@ Item {
             x: t.checked ? parent.width - width - (parent.height - height) / 2
                          : (parent.height - height) / 2
             color: t.checked ? Theme.onAccent : Theme.textSecondary
-            Behavior on x { NumberAnimation { duration: 167; easing.type: Easing.OutCubic } }
+            Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.standard } }
             Behavior on width { NumberAnimation { duration: 120 } }
             Behavior on height { NumberAnimation { duration: 120 } }
         }

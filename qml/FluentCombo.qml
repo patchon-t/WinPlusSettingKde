@@ -29,6 +29,7 @@ ComboBox {
         radius: Theme.radius
         color: !cb.enabled ? Theme.controlBgDisabled : cb.pressed ? Theme.controlBgPressed
                : cb.hovered ? Theme.controlBgHover : Theme.controlBg
+        Behavior on color { ColorAnimation { duration: Theme.durFaster } }
         border.color: Theme.controlBorder
         Rectangle {
             visible: !Theme.dark
@@ -73,6 +74,7 @@ ComboBox {
             radius: Theme.radius
             color: dma.pressed ? Theme.subtlePressed
                    : (dma.containsMouse || dlg.index === cb.currentIndex) ? Theme.subtleHover : "transparent"
+            Behavior on color { ColorAnimation { duration: Theme.durFaster } }
             Rectangle {
                 visible: dlg.index === cb.currentIndex
                 width: 3
@@ -103,14 +105,19 @@ ComboBox {
     }
 
     popup: Popup {
-        // Win11 opens the list *over* the control, selected item aligned with it
+        id: pp
+        // Win11 opens the list *over* the control, selected item aligned with it,
+        // and unrolls up and down from that item.
+        readonly property real anchorY: Math.max(0, cb.currentIndex) * 36 + 4 + 18
         y: -Math.max(0, cb.currentIndex) * 36 - 4
         x: -4
         width: cb.width + 8
         margins: 8
         padding: 4
         implicitHeight: Math.min(list.contentHeight + 8, 372)
-        background: FlyoutBackground {}
+        background: FlyoutBackground {
+            transform: Scale { id: bgScale; origin.y: pp.anchorY }
+        }
         contentItem: ListView {
             id: list
             clip: true
@@ -118,11 +125,22 @@ ComboBox {
             model: cb.popup.visible ? cb.delegateModel : null
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: FluentScrollBar {}
+            transform: Scale { id: listScale; origin.y: pp.anchorY - 4 }
         }
         enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 120 }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: 160; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFaster }
+            NumberAnimation {
+                targets: [bgScale, listScale]
+                property: "yScale"
+                from: Math.min(1, 40 / Math.max(1, pp.height))
+                to: 1
+                duration: Theme.durNormal
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: Theme.decelerate
+            }
         }
-        exit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 80 } }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
+        }
     }
 }

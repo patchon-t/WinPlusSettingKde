@@ -22,6 +22,7 @@ Item {
         anchors.topMargin: 1
         color: r.clickable && ma.pressed ? Theme.subtlePressed
                : r.clickable && ma.containsMouse ? Theme.subtleHover : "transparent"
+        Behavior on color { ColorAnimation { duration: Theme.durFaster } }
     }
     MouseArea {
         id: ma

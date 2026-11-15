@@ -21,11 +21,17 @@ ApplicationWindow {
     readonly property bool maximized: visibility === Window.Maximized || visibility === Window.FullScreen
     readonly property int cornerRadius: maximized ? 0 : 8
 
+    // Nav section switch = Win11 "entrance" (replace the whole stack).
+    // Opening a sub page = "drill in" (push); Back = reverse drill (pop).
     function goTo(i) {
+        if (i === navIndex && stack.depth === 1)
+            return
         navIndex = i
         const n = Data.nav[i]
-        stack.clear(StackView.Immediate)
-        stack.push(Qt.resolvedUrl(n.page), n.props || {})
+        if (stack.depth === 0)
+            stack.push(Qt.resolvedUrl(n.page), n.props || {}, StackView.Immediate)
+        else
+            stack.replace(null, Qt.resolvedUrl(n.page), n.props || {})
     }
 
     Component.onCompleted: goTo(0)
@@ -58,16 +64,6 @@ ApplicationWindow {
         }
     }
 
-    property Transition enterAnim: Transition {
-        ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "y"; from: 28; to: 0; duration: 300; easing.type: Easing.OutCubic }
-        }
-    }
-    property Transition exitAnim: Transition {
-        NumberAnimation { property: "opacity"; from: 1; to: 0; duration: 90 }
-    }
-
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -97,12 +93,40 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                pushEnter: win.enterAnim
-                pushExit: win.exitAnim
-                popEnter: win.enterAnim
-                popExit: win.exitAnim
-                replaceEnter: win.enterAnim
-                replaceExit: win.exitAnim
+                // ---- nav section switch: slide up + fade (EntranceNavigationTransition)
+                replaceEnter: Transition {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durNormal
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                    NumberAnimation { property: "y"; from: Theme.entranceOffset; to: 0; duration: Theme.durPage
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                }
+                replaceExit: Transition {
+                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
+                }
+                // ---- open sub page: zoom in (DrillInNavigationTransition)
+                pushEnter: Transition {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                    NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.durSlow
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                }
+                pushExit: Transition {
+                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
+                    NumberAnimation { property: "scale"; from: 1; to: 1.04; duration: Theme.durSlow
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                }
+                // ---- back: reverse drill
+                popEnter: Transition {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                    NumberAnimation { property: "scale"; from: 1.06; to: 1; duration: Theme.durSlow
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                }
+                popExit: Transition {
+                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
+                    NumberAnimation { property: "scale"; from: 1; to: 0.96; duration: Theme.durFast
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.accelerate }
+                }
             }
         }
     }

@@ -13,6 +13,7 @@ Rectangle {
     color: !enabled ? "transparent"
            : ma.pressed ? (isClose ? Qt.rgba(0.77, 0.17, 0.11, 0.9) : Theme.subtlePressed)
            : ma.containsMouse ? (isClose ? "#c42b1c" : Theme.subtleHover) : "transparent"
+    Behavior on color { ColorAnimation { duration: Theme.durFaster } }
 
     Glyph {
         anchors.centerIn: parent
