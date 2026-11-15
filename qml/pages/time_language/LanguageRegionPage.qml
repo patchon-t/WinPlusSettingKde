@@ -99,7 +99,7 @@ SettingsPage {
     SettingsCard {
         icon: "fl:earth_20_regular"
         title: "Country or region"
-        description: "Apps and services can use your country or region to give you local content"
+        description: "Apps use this to give you local content"
         FluentCombo {
             minWidth: 240
             model: page.names(Backend.regionCatalogue)
@@ -111,7 +111,7 @@ SettingsPage {
     ExpanderCard {
         icon: "fl:number_symbol_20_regular"
         title: "Regional format"
-        description: "Windows and some apps format dates and times based on your regional format"
+        description: "Dates, times and numbers use this format"
         headerControls: [
             FluentCombo {
                 minWidth: 240
