@@ -31,7 +31,7 @@ Item {
                 height: 12
                 visible: c.checked
                 lines: Theme.gCheck
-                color: Theme.onAccent
+                color: Theme.textOnAccent
             }
         }
         FText { text: c.text; visible: text.length > 0; Layout.fillWidth: true }

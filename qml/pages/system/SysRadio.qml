@@ -30,7 +30,7 @@ Item {
                 width: r.checked ? (ma.pressed ? 8 : 10) : (ma.containsMouse ? 8 : 0)
                 height: width
                 radius: width / 2
-                color: r.checked ? Theme.onAccent : Theme.strongStroke
+                color: r.checked ? Theme.textOnAccent : Theme.strongStroke
                 Behavior on width { NumberAnimation { duration: Theme.durFaster } }
             }
         }

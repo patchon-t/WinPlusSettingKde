@@ -114,7 +114,7 @@ SettingsPage {
                         anchors.centerIn: parent
                         text: mon.modelData.label
                         font.pixelSize: 28
-                        color: mon.active ? Theme.onAccent : Theme.text
+                        color: mon.active ? Theme.textOnAccent : Theme.text
                     }
                     MouseArea {
                         id: monMa
