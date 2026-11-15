@@ -11,7 +11,7 @@ ICONS="$HOME/.local/share/icons/hicolor/scalable/apps"
 # PySide6 check: use the distro package if possible
 if ! python3 -c "import PySide6.QtQuick" 2>/dev/null; then
     echo "PySide6 isn't installed. On Kubuntu/Debian run:"
-    echo "  sudo apt install python3-pyside6.qtquick python3-pyside6.qtquickcontrols2 python3-pyside6.qtqml"
+    echo "  sudo apt install python3-pyside6.qtquick python3-pyside6.qtquickcontrols2 python3-pyside6.qtqml python3-pyside6.qtdbus"
     echo "(or the app will download it into a .venv on first launch, which is slower)"
 fi
 

@@ -92,8 +92,8 @@ member SYS.PWR.9    user org.kde.Solid.PowerManagement /org/kde/Solid/PowerManag
 member SYS.MT.5     user org.kde.KWin /VirtualDesktopManager org.kde.KWin.VirtualDesktopManager createDesktop
 member SYS.CLP.4    user org.kde.klipper /klipper org.kde.klipper.klipper clearClipboardHistory
 member SHARED       user org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell evaluateScript
-member SHARED       user org.kde.KWin /org/kde/KWin/InputDeviceManager org.kde.KWin.InputDeviceManager ListPointers
-for dev in $(busctl --user get-property org.kde.KWin /org/kde/KWin/InputDeviceManager org.kde.KWin.InputDeviceManager devicesSysNames 2>/dev/null | tr -d '"' | cut -d' ' -f3- | tr ' ' '\n' | head -3); do
+member SHARED       user org.kde.KWin /org/kde/KWin/InputDevice org.kde.KWin.InputDeviceManager ListPointers
+for dev in $(busctl --user get-property org.kde.KWin /org/kde/KWin/InputDevice org.kde.KWin.InputDeviceManager devicesSysNames 2>/dev/null | tr -d '"' | cut -d' ' -f3- | tr ' ' '\n' | head -3); do
     member BT.MSE      user org.kde.KWin "/org/kde/KWin/InputDevice/$dev" org.kde.KWin.InputDevice pointerAcceleration
 done
 member A11Y         user org.kde.KWin /Effects org.kde.kwin.Effects loadEffect
