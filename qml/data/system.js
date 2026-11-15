@@ -26,6 +26,12 @@ var entry = H.list("System", "fl:laptop_20_color", [
       ] },
     { icon: "fl:timer_20_regular", title: "Focus", desc: "Reduce distractions with a focus session and do not disturb", page: P + "FocusPage.qml" },
     { icon: "fl:battery_charge_20_regular", title: "Power & battery", desc: "Screen and sleep, battery usage, power mode", page: P + "PowerPage.qml" },
+    { icon: "fl:storage_20_regular", title: "Storage", desc: "Storage space, drives, disk usage", page: P + "StoragePage.qml",
+      items: [
+        { icon: "fl:delete_20_regular", title: "Temporary files", desc: "Trash, thumbnails and app cache", page: P + "StorageTempFilesPage.qml" },
+        { icon: "fl:hard_drive_20_regular", title: "Disks & volumes", desc: "View drives, partitions and free space", page: P + "StorageDisksPage.qml" },
+        { icon: "fl:folder_20_regular", title: "Where new content is saved", desc: "Documents, music, pictures and videos folders", page: P + "StoragePathsPage.qml" }
+      ] },
     { icon: "fl:info_20_regular", title: "About", desc: "Device specifications, rename PC, OS and Plasma versions", page: P + "AboutPage.qml" }
 ])
 

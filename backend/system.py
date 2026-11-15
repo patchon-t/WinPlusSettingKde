@@ -176,6 +176,8 @@ class SystemMixin:
             return default if v is None else v
         return self._sys_ini(file).get(group, {}).get(key, default)
 
+    @Slot(str, str, str, str)
+    @Slot(str, str, str, str, str)
     @Slot(str, str, str, str, str, bool)
     def sysCfgSet(self, file: str, group: str, key: str, value: str, kind: str = "",
                   reconfigure: bool = False):
@@ -1128,15 +1130,12 @@ class SystemMixin:
         for key in ("ShowPopups", "ShowInHistory"):
             self.sysCfgSet(self.NOTIF_RC, g, key, "true" if on else "false", "bool")
 
-    def _sys_init_storage(self):
-        pass
-
-    def _sys_init_misc(self):
-        pass
-
     # ---------------------------------------------------- Power & battery
     PROFILE_LABELS = {"power-saver": "Best power efficiency", "balanced": "Balanced",
                       "performance": "Best performance"}
+    PWR_RC = "powerdevilrc"
+    PWR_REFRESH = ("org.kde.Solid.PowerManagement", "/org/kde/Solid/PowerManagement",
+                   "org.kde.Solid.PowerManagement.refreshStatus")
 
     @Slot()
     def refreshPower(self):
@@ -1148,20 +1147,53 @@ class SystemMixin:
                 self._bat_status = (bats[0] / "status").read_text().strip()
             except (OSError, ValueError):
                 self._bat_present = False
-        listing = run(["powerprofilesctl", "list"])
-        found = re.findall(r"^\*?\s*([a-z-]+):\s*$", listing, re.M)
-        order = ["power-saver", "balanced", "performance"]
-        self._profiles = [p for p in order if p in found]
-        cur = run(["powerprofilesctl", "get"])
-        self._profile_idx = self._profiles.index(cur) if cur in self._profiles else -1
         self.powerChanged.emit()
+
+        def listed(ok, out):
+            found = re.findall(r"^\*?\s*([a-z-]+):\s*$", out, re.M) if ok else []
+            order = ["power-saver", "balanced", "performance"]
+            self._profiles = [p for p in order if p in found]
+            self._async(["powerprofilesctl", "get"], got)
+
+        def got(ok, out):
+            cur = out.strip() if ok else ""
+            self._profile_idx = self._profiles.index(cur) if cur in self._profiles else -1
+            self.powerChanged.emit()
+        self._async(["powerprofilesctl", "list"], listed)
+
+        if self._bat_present:
+            def remaining(ok, out):
+                m = re.search(r"uint64\s+(\d+)", out)
+                ms = int(m.group(1)) if m and ok else 0
+                if ms > 0:
+                    mins = ms // 60000
+                    h, mn = divmod(mins, 60)
+                    self._sys_bat_remaining = (f"{h} hr {mn} min" if h else f"{mn} min")
+                else:
+                    self._sys_bat_remaining = ""
+                self.powerChanged.emit()
+            self._async(["dbus-send", "--session", "--dest=org.kde.Solid.PowerManagement", "--print-reply",
+                         "/org/kde/Solid/PowerManagement",
+                         "org.kde.Solid.PowerManagement.batteryRemainingTime"], remaining)
+
+            def limit(ok, out):
+                m = re.search(r"int32\s+(\d+)", out)
+                v = int(m.group(1)) if m and ok else 0
+                self._sys_charge_limit = v if 0 < v < 100 else 0
+                self.powerChanged.emit()
+            self._async(["dbus-send", "--session", "--dest=org.kde.Solid.PowerManagement", "--print-reply",
+                         "/org/kde/Solid/PowerManagement",
+                         "org.kde.Solid.PowerManagement.chargeStopThreshold"], limit)
 
     batteryPresent = Property(bool, lambda s: s._bat_present, notify=powerChanged)
     batteryPercent = Property(int, lambda s: s._bat_pct, notify=powerChanged)
     batteryStatus = Property(str, lambda s: s._bat_status, notify=powerChanged)
+    batteryRemaining = Property(str, lambda s: getattr(s, "_sys_bat_remaining", ""), notify=powerChanged)
+    batteryChargeLimit = Property(int, lambda s: getattr(s, "_sys_charge_limit", 0), notify=powerChanged)
     powerProfiles = Property("QVariantList", lambda s: [s.PROFILE_LABELS[p] for p in s._profiles],
                              notify=powerChanged)
     powerProfileIndex = Property(int, lambda s: s._profile_idx, notify=powerChanged)
+    powerProfileIds = Property("QVariantList", lambda s: list(s._profiles), notify=powerChanged)
 
     @Slot(int)
     def setPowerProfile(self, i: int):
@@ -1170,25 +1202,31 @@ class SystemMixin:
             self.powerChanged.emit()
             self._async(["powerprofilesctl", "set", self._profiles[i]], lambda *_: self.refreshPower())
 
+    @Slot(str)
+    def sysSetPowerProfileId(self, pid: str):
+        if pid in self._profiles:
+            self.setPowerProfile(self._profiles.index(pid))
+
     # Screen off / sleep timeouts in PowerDevil (Plasma 6 powerdevilrc layout)
     TIMEOUTS_MIN = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60, 120, 180, 240, 300, 0]  # 0 = never
 
     @Slot(str, str, result=int)
     def powerTimeoutIndex(self, profile: str, what: str) -> int:
         group, enabled_key, sec_key = self._timeout_keys(profile, what)
+        never = len(self.TIMEOUTS_MIN) - 1
         if what == "screen":
-            if kread("powerdevilrc", group, enabled_key, "true") == "false":
-                return len(self.TIMEOUTS_MIN) - 1
-            default = "300" if profile == "Battery" else "600"
+            if self.sysCfg(self.PWR_RC, group, enabled_key, "true") == "false":
+                return never
+            default = {"Battery": "300", "LowBattery": "120"}.get(profile, "600")
         else:
-            if kread("powerdevilrc", group, enabled_key, "1") == "0":
-                return len(self.TIMEOUTS_MIN) - 1
-            default = "600" if profile == "Battery" else "900"
+            if self.sysCfg(self.PWR_RC, group, enabled_key, "1") == "0":
+                return never
+            default = {"Battery": "600", "LowBattery": "300"}.get(profile, "900")
         try:
-            minutes = int(kread("powerdevilrc", group, sec_key, default)) // 60
+            minutes = int(self.sysCfg(self.PWR_RC, group, sec_key, default)) // 60
         except ValueError:
             minutes = 10
-        return min(range(len(self.TIMEOUTS_MIN) - 1), key=lambda i: abs(self.TIMEOUTS_MIN[i] - minutes))
+        return min(range(never), key=lambda i: abs(self.TIMEOUTS_MIN[i] - minutes))
 
     @staticmethod
     def _timeout_keys(profile: str, what: str):
@@ -1201,13 +1239,243 @@ class SystemMixin:
         group, enabled_key, sec_key = self._timeout_keys(profile, what)
         minutes = self.TIMEOUTS_MIN[index]
         if what == "screen":
-            kwrite("powerdevilrc", group, enabled_key, "false" if minutes == 0 else "true", "bool")
+            self.sysCfgSet(self.PWR_RC, group, enabled_key, "false" if minutes == 0 else "true", "bool")
         else:
-            kwrite("powerdevilrc", group, enabled_key, "0" if minutes == 0 else "1")
+            cur = self.sysCfg(self.PWR_RC, group, enabled_key, "1")
+            self.sysCfgSet(self.PWR_RC, group, enabled_key,
+                           "0" if minutes == 0 else (cur if cur in ("1", "2") else "1"))
         if minutes:
-            kwrite("powerdevilrc", group, sec_key, str(minutes * 60))
-        dbus("org.kde.Solid.PowerManagement", "/org/kde/Solid/PowerManagement",
-             "org.kde.Solid.PowerManagement.refreshStatus")
+            self.sysCfgSet(self.PWR_RC, group, sec_key, str(minutes * 60))
+        self._sys_power_refresh()
+
+    def _sys_power_refresh(self):
+        QTimer.singleShot(400, lambda: dbus(*self.PWR_REFRESH))
+
+    @Slot(str, str, str)
+    def sysPowerSet(self, group: str, key: str, value: str):
+        """Write a powerdevilrc key and tell PowerDevil to reload (what the KCM does)."""
+        self.sysCfgSet(self.PWR_RC, group, key, value, "bool" if value in ("true", "false") else "")
+        self._sys_power_refresh()
+
+    @Slot(int)
+    def sysSetLowBatteryLevel(self, level: int):
+        """Energy saver automatically at N %: low-battery level + energy saver profile."""
+        self.sysCfgSet(self.PWR_RC, "BatteryManagement", "BatteryLowLevel", str(level))
+        self.sysCfgSet(self.PWR_RC, "LowBattery/Performance", "PowerProfile", "power-saver")
+        self._sys_power_refresh()
+
+    @Slot(result=int)
+    def sysIdleAction(self) -> int:
+        """PowerDevil's single idle action: 1 = Sleep, 2 = Hibernate (0 = never)."""
+        for prof in ("AC", "Battery"):
+            v = self.sysCfg(self.PWR_RC, f"{prof}/SuspendAndShutdown", "AutoSuspendAction", "1")
+            if v in ("1", "2"):
+                return int(v)
+        return 1
+
+    @Slot(int)
+    def sysSetIdleAction(self, action: int):
+        for prof in ("AC", "Battery", "LowBattery"):
+            g = f"{prof}/SuspendAndShutdown"
+            if self.sysCfg(self.PWR_RC, g, "AutoSuspendAction", "1") != "0":
+                self.sysCfgSet(self.PWR_RC, g, "AutoSuspendAction", str(action))
+        self._sys_power_refresh()
+
+    # ---------------------------------------------------- Storage
+    XDG_DIR_KEYS = {"DOCUMENTS": "Documents", "PICTURES": "Pictures", "MUSIC": "Music",
+                    "VIDEOS": "Videos", "DOWNLOAD": "Downloads", "DESKTOP": "Desktop"}
+
+    def _sys_init_storage(self):
+        self._sys_cats: list = []
+        self._sys_temp: list = []
+        self._sys_disks: list = []
+        self._sys_user_dirs: dict = {}
+        self._sys_scanning = False
+
+    sysStorageCats = Property("QVariantList", lambda s: s._sys_cats, notify=sysStorageChanged)
+    sysTempItems = Property("QVariantList", lambda s: s._sys_temp, notify=sysStorageChanged)
+    sysDisks = Property("QVariantList", lambda s: s._sys_disks, notify=sysStorageChanged)
+    sysStorageScanning = Property(bool, lambda s: s._sys_scanning, notify=sysStorageChanged)
+    sysUserDirs = Property("QVariantMap", lambda s: s._sys_user_dirs, notify=sysStorageChanged)
+
+    @staticmethod
+    def sys_human(n: float) -> str:
+        n = float(n)
+        for unit in ("bytes", "KB", "MB", "GB", "TB"):
+            if n < 1024 or unit == "TB":
+                return f"{n:.0f} bytes" if unit == "bytes" else (f"{n:.1f} {unit}" if n < 100 else f"{n:.0f} {unit}")
+            n /= 1024
+        return ""
+
+    @Slot(int, result=str)
+    def sysHumanSize(self, n: int) -> str:
+        return self.sys_human(n)
+
+    def _sys_read_user_dirs(self) -> dict:
+        """~/.config/user-dirs.dirs  ->  {"DOCUMENTS": "/home/me/Documents", ...}"""
+        res = {}
+        path = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config") / "user-dirs.dirs"
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            m = re.match(r'\s*XDG_([A-Z]+)_DIR="?([^"]*)"?', line)
+            if m:
+                res[m.group(1)] = m.group(2).replace("$HOME", str(HOME))
+        for key, default in self.XDG_DIR_KEYS.items():
+            res.setdefault(key, str(HOME / default))
+        return res
+
+    @Slot()
+    def sysRefreshStorage(self):
+        """Size of each category via du (async, one process per category)."""
+        self._sys_user_dirs = self._sys_read_user_dirs()
+        u = shutil.disk_usage("/")
+        cats = [
+            ("Apps", "fl:apps_20_regular", ["/var/lib/flatpak", str(HOME / ".local/share/flatpak")]),
+            ("Temporary files", "fl:delete_20_regular", [str(HOME / ".cache"), str(HOME / ".local/share/Trash")]),
+            ("Documents", "fl:document_20_regular", [self._sys_user_dirs["DOCUMENTS"]]),
+            ("Pictures", "fl:image_20_regular", [self._sys_user_dirs["PICTURES"]]),
+            ("Music", "fl:headphones_20_regular", [self._sys_user_dirs["MUSIC"]]),
+            ("Videos", "fl:desktop_20_regular", [self._sys_user_dirs["VIDEOS"]]),
+            ("Downloads", "fl:arrow_download_20_regular", [self._sys_user_dirs["DOWNLOAD"]]),
+        ]
+        self._sys_cats = [{"name": n, "icon": ic, "bytes": 0, "text": "…", "fraction": 0.0, "paths": p}
+                          for n, ic, p in cats]
+        self._sys_scanning = True
+        self.sysStorageChanged.emit()
+        pending = {"n": len(cats)}
+
+        def make_cb(i):
+            def cb(ok, out):
+                total = 0
+                for line in out.splitlines():
+                    m = re.match(r"(\d+)\s", line)
+                    if m:
+                        total += int(m.group(1))
+                c = self._sys_cats[i]
+                c["bytes"], c["text"] = total, self.sys_human(total)
+                c["fraction"] = total / u.total if u.total else 0.0
+                pending["n"] -= 1
+                if pending["n"] == 0:
+                    self._sys_scanning = False
+                    other = max(0, u.used - sum(x["bytes"] for x in self._sys_cats))
+                    self._sys_cats.append({"name": "Other", "icon": "fl:storage_20_regular", "bytes": other,
+                                           "text": self.sys_human(other), "fraction": other / u.total if u.total else 0.0,
+                                           "paths": []})
+                self.sysStorageChanged.emit()
+            return cb
+        for i, (_n, _ic, paths) in enumerate(cats):
+            existing = [p for p in paths if Path(p).exists()]
+            if not existing:
+                make_cb(i)(True, "")
+                continue
+            self._async(["du", "-sxb", *existing], make_cb(i), 120000)
+
+    # --- temporary files
+    @Slot()
+    def sysRefreshTemp(self):
+        items = [
+            {"id": "trash", "name": "Trash", "desc": "Files you've deleted",
+             "path": str(HOME / ".local/share/Trash"), "bytes": 0, "text": "…"},
+            {"id": "thumbs", "name": "Thumbnails", "desc": "Cached previews of your pictures and files",
+             "path": str(HOME / ".cache/thumbnails"), "bytes": 0, "text": "…"},
+            {"id": "cache", "name": "Temporary app files", "desc": "Cache that apps can rebuild (~/.cache)",
+             "path": str(HOME / ".cache"), "bytes": 0, "text": "…"},
+        ]
+        self._sys_temp = items
+        self.sysStorageChanged.emit()
+
+        def make_cb(it):
+            def cb(ok, out):
+                m = re.match(r"(\d+)\s", out)
+                it["bytes"] = int(m.group(1)) if m else 0
+                if it["id"] == "cache":
+                    thumbs = next(x for x in items if x["id"] == "thumbs")
+                    it["bytes"] = max(0, it["bytes"] - thumbs["bytes"])
+                it["text"] = self.sys_human(it["bytes"])
+                self._sys_temp = list(items)
+                self.sysStorageChanged.emit()
+            return cb
+        # thumbnails first so the cache number can exclude them
+        def after_thumbs(ok, out):
+            make_cb(items[1])(ok, out)
+            for it in (items[0], items[2]):
+                if Path(it["path"]).exists():
+                    self._async(["du", "-sxb", it["path"]], make_cb(it), 120000)
+                else:
+                    make_cb(it)(True, "0 x")
+        if Path(items[1]["path"]).exists():
+            self._async(["du", "-sxb", items[1]["path"]], after_thumbs, 120000)
+        else:
+            after_thumbs(True, "0 x")
+
+    @Slot("QVariantList")
+    def sysRemoveTemp(self, ids):
+        """Delete the chosen temporary-file groups (Trash via ktrash6, the rest contents only)."""
+        done = lambda *_: self.sysRefreshTemp()          # noqa: E731
+        if "trash" in ids:
+            self._async(["ktrash6", "--empty"], done, 120000)
+        if "thumbs" in ids:
+            self._async(["find", str(HOME / ".cache/thumbnails"), "-mindepth", "1", "-delete"], done, 120000)
+        if "cache" in ids:
+            self._async(["find", str(HOME / ".cache"), "-mindepth", "1", "-not", "-path",
+                         str(HOME / ".cache/thumbnails") + "*", "-delete"], done, 120000)
+
+    # --- disks & volumes (read-only)
+    @Slot()
+    def sysRefreshDisks(self):
+        def cb(ok, out):
+            disks = []
+            try:
+                tree = json.loads(out).get("blockdevices", []) if ok else []
+            except json.JSONDecodeError:
+                tree = []
+
+            def mount_of(n):
+                mps = n.get("mountpoints") or [n.get("mountpoint")]
+                return next((m for m in mps if m), "")
+
+            def volume(n):
+                mp = mount_of(n)
+                used = total = 0
+                if mp:
+                    try:
+                        du = shutil.disk_usage(mp)
+                        used, total = du.used, du.total
+                    except OSError:
+                        pass
+                size = int(n.get("size") or 0)
+                return {"name": n.get("label") or n.get("name", ""), "dev": "/dev/" + n.get("name", ""),
+                        "fstype": n.get("fstype") or "", "mount": mp, "size": self.sys_human(size),
+                        "used": self.sys_human(used) if total else "", "fraction": used / total if total else 0.0}
+            for d in tree:
+                if d.get("type") not in ("disk",) or d.get("name", "").startswith(("loop", "zram", "ram")):
+                    continue
+                vols = [volume(c) for c in d.get("children", []) if c.get("type") in ("part", "crypt", "lvm")]
+                if not vols and mount_of(d):
+                    vols = [volume(d)]
+                disks.append({"name": d.get("name", ""), "model": d.get("model") or "", "size": self.sys_human(int(d.get("size") or 0)),
+                              "removable": bool(d.get("rm")), "volumes": vols})
+            self._sys_disks = disks
+            self.sysStorageChanged.emit()
+        self._async(["lsblk", "-b", "-J", "-o", "NAME,SIZE,FSTYPE,MOUNTPOINT,LABEL,TYPE,RM,MODEL"], cb)
+
+    # --- where new content is saved (xdg-user-dirs-update --set DIR path)
+    @Slot(str, str)
+    def sysSetUserDir(self, key: str, path: str):
+        if key not in self.XDG_DIR_KEYS or not path.startswith("/"):
+            return
+
+        def after(ok, _out):
+            self._sys_user_dirs = self._sys_read_user_dirs()
+            self.sysStorageChanged.emit()
+        self._async(["mkdir", "-p", path],
+                    lambda ok, _o: self._async(["xdg-user-dirs-update", "--set", key, path], after) if ok else after(False, ""))
+
+    def _sys_init_misc(self):
+        pass
 
     # ---------------------------------------------------- About
     @Property("QVariantList", constant=True)
