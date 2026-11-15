@@ -44,7 +44,7 @@ fails gets re-marked before Phase 1.
 * Per-device input settings: set D-Bus properties on `org.kde.KWin /org/kde/KWin/InputDevice/<sysName>
   org.kde.KWin.InputDevice`; KWin persists them to `kcminputrc [Libinput][<vendor>][<product>][<name>]`
   itself (SRC `kwin/src/backends/libinput/device.cpp:245-260, 533`, `connection.cpp:714`). List devices with
-  `org.kde.KWin /org/kde/KWin/InputDeviceManager org.kde.KWin.InputDeviceManager.ListPointers|ListKeyboards|ListTouch`.
+  property `devicesSysNames` (all devices, including tablets) or `ListPointers|ListKeyboards|ListTouch` on `org.kde.KWin /org/kde/KWin/InputDevice org.kde.KWin.InputDeviceManager` (the manager lives at `/org/kde/KWin/InputDevice`, SRC `connection.cpp:64`). Mouse = `pointer && !touchpad && !tabletTool && !tabletPad`.
 
 ### Bugs found in the current code while verifying
 
@@ -99,7 +99,7 @@ Read: `kscreen-doctor -j` (APP).
 | SYS.DISP.9b | (extra) Legacy X11 apps: apply scaling themselves | `kdeglobals [KScreen] XwaylandClientsScale` (Bool, default true) | SRC `kscreen/kcm/globalscalesettings.kcfg` |
 | SYS.DISP.10 | Display resolution | `kscreen-doctor output.X.mode.<id>` | APP |
 | SYS.DISP.11 | Display orientation | `kscreen-doctor output.X.rotation.<normal\|left\|inverted\|right>` | APP |
-| SYS.DISP.12 | Multiple displays: Extend / Duplicate / Show only on N | enable/disable (APP); Duplicate: `kscreen-doctor output.X.mirror.<other>` | APP · SRC (mirror arg format UNVERIFIED) |
+| SYS.DISP.12 | Multiple displays: Extend / Duplicate / Show only on N | enable/disable (APP); Duplicate: `kscreen-doctor output.X.mirror.<name>`, undo `mirror.none`; read `replicationSource` from `-j` | APP · SRC `libkscreen/src/doctor/doctor.cpp:522`, `configserializer.cpp:72-131` |
 | SYS.DISP.12a | Make this my main display | `kscreen-doctor output.X.priority.1` | SRC |
 | SYS.DISP.12b | Remember window locations based on monitor connection; Minimize windows when a monitor is disconnected; Ease cursor movement between displays | KWin does this itself, no toggle | N/A — hide |
 | **Related settings** ||||
@@ -206,7 +206,7 @@ sleep AC 900 / Battery 600 / LowBattery 300 (`powerdevilsettingsdefaults.cpp`). 
 | SYS.STO.4 | Cleanup recommendations | — | N/A — hide |
 | SYS.STO.5 | Advanced storage settings › Storage used on other drives / Disks & volumes | read-only list: `lsblk -J -o NAME,SIZE,FSTYPE,MOUNTPOINT,LABEL,TYPE` + `shutil.disk_usage` per mount | CLI (`lsblk -J`) |
 | SYS.STO.5a | › Disks & volumes › Properties: change label, format, drive letter | — (destructive; leave to KDE Partition Manager) | N/A — hide |
-| SYS.STO.5b | › Where new content is saved | XDG user dirs `~/.config/user-dirs.dirs` (what `plasma-desktop/kcms/desktoppaths` edits); `xdg-user-dirs-update --set NAME PATH` | UNVERIFIED (tool not checked) |
+| SYS.STO.5b | › Where new content is saved | XDG user dirs: `xdg-user-dirs-update --set DOCUMENTS|MUSIC|PICTURES|VIDEOS|DOWNLOAD <path>` (what `plasma-desktop/kcms/desktoppaths` edits) | CLI (`--help`) |
 | SYS.STO.5c | › Storage Spaces, Drive optimization, Backup options | — | N/A — hide |
 | SYS.STO.6 | (extra) Removable drives: mount on plug-in / at login | `kded_device_automounterrc [General] AutomountEnabled, AutomountOnPlugin, AutomountOnLogin, AutomountUnknownDevices` | SRC `plasma-desktop/solid-device-automounter/lib/AutomounterSettingsBase.kcfg` (also used by B&D › AutoPlay) |
 
@@ -215,7 +215,7 @@ sleep AC 900 / Battery 600 / LowBattery 300 (`powerdevilsettingsdefaults.cpp`). 
 |---|---|---|---|
 | SYS.NBS.1 | Nearby sharing: Off / My devices only / Everyone nearby | no tri-state; KDE Connect is pair-based | PARTIAL → show paired devices instead |
 | SYS.NBS.2 | Save files I receive to | Bluetooth: `bluedevilreceiverrc [General] saveUrl (Url)`; KDE Connect per-device share path UNVERIFIED | SRC `bluedevil/src/settings/filereceiver.kcfg` |
-| SYS.NBS.3 | Rename your device | `kdeconnect-cli --name <new>` (option exists) | SRC `kdeconnect-kde/cli/kdeconnect-cli.cpp` (semantics UNVERIFIED) |
+| SYS.NBS.3 | Rename your device | `kdeconnect-cli --name` only *selects* a device by name; no verified way to rename this PC | N/A — disabled (`kdeconnect-cli.cpp:28,97`) |
 | SYS.NBS.4 | (extra) Accept files automatically | `bluedevilreceiverrc [General] autoAccept (Int)` | SRC |
 
 ### 1.8 Multitasking
@@ -287,8 +287,8 @@ remove, connect, disconnect, devices, info, system-alias`.
 | BT.1 | Bluetooth (toggle) | `bluetoothctl power on/off` | APP |
 | BT.1a | (extra) Bluetooth state at login: Remember / On / Off | `bluedevilglobalrc [General] launchState {Remember,Enable,Disable}` | SRC `bluedevil/src/settings/bluedevilglobalsettings.kcfg` |
 | BT.2 | Add device → dialog: Bluetooth / Wireless display or dock / Everything else | Bluetooth: `bluetoothctl scan on` (async, long timeout) → `pair <mac>` → `trust <mac>` → `connect <mac>`; others — | SRC (commands) · wireless display N/A — hide |
-| BT.3 | Device cards (connected/paired, battery %) + ⋯ Connect/Disconnect/Remove | `bluetoothctl devices Paired|Connected`, `connect`, `disconnect`, `remove` (APP); battery: `bluetoothctl info <mac>` "Battery Percentage" line | APP · battery UNVERIFIED |
-| BT.4 | Devices (›) page: Mouse, keyboard & pen / Audio / Other devices groups | group by `bluetoothctl info` `Icon:` value (input-mouse, audio-headset…) | UNVERIFIED (field values) |
+| BT.3 | Device cards (connected/paired, battery %) + ⋯ Connect/Disconnect/Remove | `bluetoothctl devices Paired|Connected`, `connect`, `disconnect`, `remove` (APP); `bluetoothctl info <mac>` prints `Icon:` and `Battery Percentage: 0x.. (N)` | APP · SRC `bluez/client/main.c:2041-2067` |
+| BT.4 | Devices (›) page: Mouse, keyboard & pen / Audio / Other devices groups | group by `bluetoothctl info` `Icon:` value (input-mouse, audio-headset…, list in `bluez/src/dbus-common.c:60-175`) | SRC |
 | BT.4a | › Device settings: Show notifications to connect using Swift Pair; Download over metered connections | — | N/A — hide |
 | BT.4b | › Bluetooth devices discovery (Default / Advanced) | — | N/A — hide |
 | BT.4c | › (extra) Make this PC discoverable | `bluetoothctl discoverable on/off` | SRC |
@@ -298,7 +298,7 @@ remove, connect, disconnect, devices, info, system-alias`.
 | BT.PRN.2 | Printer preferences: Let Windows manage my default printer; Download drivers over metered connections | — | N/A — hide |
 | BT.PRN.3 | per-printer page: Set as default | `lpadmin -d NAME` | CLI |
 | BT.PRN.3a | › Open print queue | native list: `lpstat -o NAME`; cancel `cancel <job>` | CLI (`lpstat`) · `cancel` UNVERIFIED |
-| BT.PRN.3b | › Print test page | `lp -d NAME /usr/share/cups/data/testprint` | UNVERIFIED |
+| BT.PRN.3b | › Print test page | `lp -d NAME <CUPS datadir>/data/testprint` (`CUPS_DATADIR` overrides the datadir) | SRC `print-manager/src/libkcups/KCupsRequest.cpp:373-377` · CLI |
 | BT.PRN.3c | › Printer properties / Printing preferences / Hardware properties | `configure-printer NAME` (print-manager binary) | SRC `print-manager` CMake target · this is a hand-off window |
 | BT.PRN.3d | › Remove | `lpadmin -x NAME` ⚠root | CLI |
 | BT.PRN.4 | Scanners | `scanimage -L` (SANE) | UNVERIFIED |
@@ -347,7 +347,7 @@ remove, connect, disconnect, devices, info, system-alias`.
 | BT.USB.1 | Connection notifications; USB battery saver; Show a notification if this PC is charging slowly | — | N/A — hide |
 | BT.USB.2 | USB4 hubs and devices (Thunderbolt) | `org.freedesktop.bolt` (`boltctl`) device list / authorize | SRC `plasma-thunderbolt/src/interfaces/org.freedesktop.bolt1.*.xml` (only when bolt is running) |
 | **Linux extras on this page** ||||
-| BT.X.1 | Keyboard: repeat delay / rate, NumLock at startup | `kcminputrc [Keyboard] RepeatDelay (Int 600), RepeatRate (Double 25), KeyRepeat, NumLock (Int 0 on / 1 off / 2 unchanged)` | SRC `plasma-desktop/kcms/keyboard/keyboardmiscsettings.kcfg` (NumLock value meaning UNVERIFIED) → place under Time & language › Typing › Advanced keyboard settings instead (Win has no Keyboard page here) |
+| BT.X.1 | Keyboard: repeat delay / rate, NumLock at startup | `kcminputrc [Keyboard] RepeatDelay (Int 600), RepeatRate (Double 25), KeyRepeat (repeat|nothing|accent), NumLock (0 on / 1 off / 2 unchanged)` → built under Time & language › Typing › Advanced keyboard settings | SRC `keyboardmiscsettings.kcfg`, `keyboard_hardware.cpp:28-31` |
 | BT.X.2 | Game controllers | → Gaming (GAM.X.1) | — |
 
 ## 3. Network & internet  · owner: `backend/network.py`, `qml/pages/network/`, `qml/data/network.js`
@@ -392,12 +392,12 @@ Writes to system connections may prompt polkit (⚠root) → always `_async`.
 | **Airplane mode** ||||
 | NET.AIR.1 | Airplane mode (toggle) | what plasma-nm does: remember Wi-Fi/WWAN state, then `nmcli radio wifi off`, `nmcli radio wwan off`, Bluetooth power off; reverse restores | SRC `plasma-nm/libs/handler.cpp:521-537` · CLI |
 | NET.AIR.2 | Wireless devices: Wi-Fi, Bluetooth toggles | `nmcli radio wifi`, `bluetoothctl power` | APP |
-| NET.AIR.3 | Airplane state shared with the Plasma network applet | stored in config file `plasma-nm` (key name UNVERIFIED) | UNVERIFIED |
+| NET.AIR.3 | Airplane state shared with the Plasma network applet | `plasma-nm [General] AirplaneModeEnabled (Bool)`; hotspot name/password `HotspotName`, `HotspotPassword` | SRC `plasma-nm/libs/editor/configuration.cpp:90-150` |
 | **Proxy** (two layers: KDE apps read `kioslaverc`; NM-aware apps read the connection's `proxy.*`) ||||
 | NET.PRX.1 | Automatic: Automatically detect settings | `kioslaverc [Proxy Settings] ProxyType=3` (WPAD) | SRC `kio-extras/kcms/proxy/kioslave.kcfg`, enum `proxy.h:34` (NoProxy 0, Manual 1, PAC 2, WPAD 3, EnvVar 4) |
 | NET.PRX.2 | Use setup script: Script address | `ProxyType=2`, `Proxy Config Script (String)`; NM: `proxy.method auto`, `proxy.pac-url` | SRC |
-| NET.PRX.3 | Manual: Use a proxy server: address, port | `ProxyType=1`, `httpProxy`, `httpsProxy`, `ftpProxy`, `socksProxy` (value format UNVERIFIED) | SRC (keys) |
-| NET.PRX.4 | Exceptions; Don't use proxy for local addresses | `NoProxyFor (String)`, `ReversedException (Bool)` | SRC |
+| NET.PRX.3 | Manual: Use a proxy server: address, port | `ProxyType=1`, `httpProxy`, `httpsProxy`, `ftpProxy` as `"host port"` (space separated); running KIO workers reload on signal `/KIO/Scheduler org.kde.KIO.Scheduler.reparseSlaveConfiguration(s)` | SRC `kio-extras/kcms/proxy/ui/main.qml:347`, `kio ksaveioconfig.cpp` |
+| NET.PRX.4 | Exceptions; Don't use proxy for local addresses | `NoProxyFor (String, comma separated)`. `ReversedException (Bool)` means "use the proxy ONLY for the exceptions" (not "skip local addresses"); no local-address switch | SRC · "local addresses" N/A |
 | **Dial-up** ||||
 | NET.DUP.1 | Dial-up | — | N/A — hide |
 | **Advanced network settings** ||||
@@ -439,7 +439,7 @@ decorations, Icons, Cursors, Splash) go under **Themes › Related settings** so
 | PER.THM.3 | Related: Desktop icon settings | — | N/A — hide |
 | PER.THM.4 | Related: Contrast themes | → A11Y.CT | link |
 | PER.THM.5 | (Plasma) Plasma style | `plasma-apply-desktoptheme --list-themes` / `<name>`; current `plasmarc [Theme] name` | SRC |
-| PER.THM.6 | (Plasma) Window decorations | `kwinrc [org.kde.kdecoration2] pluginName, theme, borderSize, borderSizeAuto, buttonsOnLeft, buttonsOnRight` + reconfigure | SRC `kwin/src/kcms/decoration/kwindecorationsettings.kcfg` |
+| PER.THM.6 | (Plasma) Window decorations | `kwinrc [org.kde.kdecoration2] library (org.kde.breeze), theme, BorderSize (None…Oversized), BorderSizeAuto, ButtonsOnLeft, ButtonsOnRight` + reconfigure | SRC `kwindecorationsettings.kcfg`, `kwin/src/kcms/decoration/utils.cpp:13-21` |
 | PER.THM.7 | (Plasma) Icons | `kdeglobals [Icons] Theme` | SRC `kcms/icons/iconssettingsbase.kcfg` (live-apply tool UNVERIFIED) |
 | PER.THM.8 | (Plasma) Cursors | `plasma-apply-cursortheme <name> [--size N]`, `--list-themes`; stored `kcminputrc [Mouse] cursorTheme, cursorSize` | SRC `kcms/cursortheme/plasma-apply-cursortheme.cpp`, `cursorthemesettings.kcfg` |
 | PER.THM.9 | (Plasma) Splash screen | `ksplashrc [KSplash] Theme, Engine` | SRC `plasma-desktop/kcms/ksplash/splashscreensettings.kcfg` |
@@ -518,13 +518,13 @@ SetIconFile, SetAccountType, SetPasswordMode, SetPassword, SetAutomaticLogin, Se
 | ACC.INF.1 | Your info: Adjust your photo › Choose a file / Take a photo | `User.SetIconFile <path>` | SRC · Take a photo N/A — hide |
 | ACC.INF.2 | Account settings: Sign in with a Microsoft account instead | — | N/A — hide |
 | ACC.INF.3 | (Win: name, via Control Panel) Change display name | `User.SetRealName` | SRC |
-| ACC.EML.1 | Email & accounts: Add a Microsoft/work/other account; accounts list | KAccounts (online accounts) | UNVERIFIED (no checked CLI/D-Bus): candidate for a justified hand-off |
+| ACC.EML.1 | Email & accounts: Add a Microsoft/work/other account; accounts list | KAccounts: its kded module `org.kde.Accounts` has no list/add API → justified hand-off `kcm_kaccounts` | SRC (kaccounts-integration) · hand-off |
 | ACC.SGN.1 | Sign-in options: Facial recognition (Windows Hello) | — | N/A — disabled |
 | ACC.SGN.2 | Fingerprint recognition: Set up / Remove | `fprintd-enroll`, `fprintd-list`, `fprintd-delete` (CLI) or `net.reactivated.Fprint` D-Bus | CLI · D-Bus UNVERIFIED |
 | ACC.SGN.3 | PIN (Windows Hello); Security key; Picture password | — | N/A — disabled (PIN) / hide |
-| ACC.SGN.4 | Password: Change | `User.SetPassword(crypted, hint)` (+ `SetPasswordMode`) or interactive `passwd` | SRC (method) · crypt format UNVERIFIED |
+| ACC.SGN.4 | Password: Change | `User.SetPassword(crypted, hint)` with SHA-512 `$6$<salt>$` crypt (as kcm_users), via QtDBus with interactive polkit; no old-password argument | SRC `plasma-workspace/kcms/users/src/user.cpp:170,269-293` |
 | ACC.SGN.5 | Additional settings: For improved security, only allow Windows Hello sign-in | — | N/A — hide |
-| ACC.SGN.6 | If you've been away, when should Windows require you to sign in again? (Never / Every time / 1 / 3 / 5 / 15 min…) | `kscreenlockerrc [Daemon] LockOnResume (Bool)`, `RequirePassword (Bool)`, `LockGrace (Int s)` | SRC `kscreenlocker/settings/kscreenlockersettings.kcfg` |
+| ACC.SGN.6 | If you've been away, when should Windows require you to sign in again? (Never / Every time / 1 / 3 / 5 / 15 min…) | `kscreenlockerrc [Daemon]`: Never = `RequirePassword=false`; otherwise `RequirePassword=true`, `LockOnResume=true`, `LockGrace` = seconds (0 = every time) | SRC `kscreenlockersettings.kcfg`, `kscreenlocker/kcm/ui/main.qml:120-150` |
 | ACC.SGN.7 | Dynamic lock | — | N/A — hide |
 | ACC.SGN.8 | Automatically save my restartable apps and restart them when I sign back in | `ksmserverrc [General] loginMode {restorePreviousLogout, restoreSavedSession, emptySession}` | SRC `plasma-desktop/kcms/ksmserver/smserversettings.kcfg` |
 | ACC.SGN.9 | Show account details such as my email address on the sign-in screen; Use my sign-in info to finish setup after an update | — | N/A — hide |
@@ -562,10 +562,10 @@ list-timezones, set-local-rtc, set-ntp, timesync-status, show-timesync, ntp-serv
 | TL.LR.4a | (needed after choosing a locale) generate locale | system bus `org.kde.localegenhelper /LocaleGenHelper org.kde.localegenhelper.LocaleGenHelper.enableLocales(as)` ⚠polkit | SRC `kcms/region_language/localegenhelper/` |
 | TL.LR.5 | Related: Administrative language settings | `localectl set-locale` ⚠polkit | CLI |
 | TL.TYP.1 | Typing: Show text suggestions, Multilingual suggestions, Typing insights | — | N/A — hide |
-| TL.TYP.2 | Autocorrect misspelled words; Highlight misspelled words | Sonnet spell-check settings | UNVERIFIED (Sonnet settings storage not confirmed) |
+| TL.TYP.2 | Autocorrect misspelled words; Highlight misspelled words | Highlight = Sonnet `QSettings("KDE","Sonnet")` (`~/.config/KDE/Sonnet.conf`) key `backgroundCheckerEnabled`; Autocorrect: no system-wide key | SRC `sonnet/src/core/settingsimpl.cpp:230-250` · Autocorrect N/A — disabled |
 | TL.TYP.3 | Touch keyboard (›) | KWin input method: `kwinrc [Wayland] InputMethod (Path to .desktop)`; on/off `org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard` props `available, active (rw)` | SRC `kwin/src/kcms/virtualkeyboard/virtualkeyboardsettings.kcfg`, `kwin/src/virtualkeyboard_dbus.h:20-24` |
 | TL.TYP.4 | Advanced keyboard settings › Override for default input method | first entry of `kxkbrc [Layout] LayoutList` | SRC |
-| TL.TYP.4a | › Let me use a different input method for each app window | `kxkbrc [Layout] SwitchMode` (`Global` / `WinClass` / `Window` / `Desktop`) | SRC `plasma-desktop/kcms/keyboard/keyboardsettings.kcfg` (value names besides Global UNVERIFIED) |
+| TL.TYP.4a | › Let me use a different input method for each app window | `kxkbrc [Layout] SwitchMode` (`Global` / `Desktop` / `WinClass` / `Window`) | SRC `plasma-desktop/kcms/keyboard/keyboard_config.cpp:15-20` |
 | TL.TYP.4b | › Use the desktop language bar when it's available | = PER.TXT.2 | SRC |
 | TL.TYP.4c | › Input language hot keys | `kxkbrc [Layout] Options` (xkb `grp:*` options) | SRC (key) · option ids from xkeyboard-config (`localectl list-x11-keymap-options` CLI) |
 | TL.TYP.4d | › (extra) Key repeat delay/rate, NumLock | = BT.X.1 | SRC |
@@ -670,7 +670,7 @@ wallpaper → `wallpaper`, gamemode → `gamemode`, realtime → `realtime`. Sta
 | PRV.APP.2 | Camera: Camera access, Let apps access, per-app | `devices` table (entry id for camera UNVERIFIED) | PARTIAL · SRC |
 | PRV.APP.3 | Microphone | no portal table; Flatpak static: `flatpak override --user --nosocket=pulseaudio <app>` | PARTIAL · CLI |
 | PRV.APP.4 | Notifications: per-app | `notifications` table; also SYS.NOT.5 | SRC |
-| PRV.APP.5 | Documents / Downloads folder / Music library / Pictures / Videos / File system | `flatpak override --user --filesystem=xdg-documents|xdg-download|xdg-music|xdg-pictures|xdg-videos|host[:ro] <app>` / `--nofilesystem=` | CLI (filesystem token names UNVERIFIED) |
+| PRV.APP.5 | Documents / Downloads folder / Music library / Pictures / Videos / File system | `flatpak override --user --filesystem=xdg-documents|xdg-download|xdg-music|xdg-pictures|xdg-videos|home|host[:ro] <app>` / `--nofilesystem=` | SRC `flatpak-kcm/flatpakpermission.cpp:78,100-135` · CLI |
 | PRV.APP.6 | Screenshots and apps | `screenshot` table | SRC |
 | PRV.APP.7 | (Win: Installed apps › Advanced › Background apps) Let this app run in background | `background` table | SRC |
 
@@ -683,7 +683,7 @@ Sources: PackageKit (distro), Flatpak, fwupd (firmware = Win "driver/optional up
 | ID | Win11 setting | Linux equivalent / how | Status |
 |---|---|---|---|
 | UPD.1 | Check for updates (status: "You're up to date", last checked) | `pkcon refresh` then `pkcon get-updates`; `flatpak remote-ls --updates`; `fwupdmgr get-updates` (long-running → `_async`) | CLI |
-| UPD.2 | Download & install all / Restart now | `pkcon update -y` ⚠polkit; `flatpak update -y`; `fwupdmgr update`; restart `org.kde.LogoutPrompt /LogoutPrompt promptReboot` | CLI · SRC `plasma-workspace/ksmserver/org.kde.LogoutPrompt.xml` (path UNVERIFIED) |
+| UPD.2 | Download & install all / Restart now | `pkcon -p -y update` ⚠polkit; `flatpak update -y --noninteractive`; restart `org.kde.LogoutPrompt /LogoutPrompt promptReboot` | CLI · SRC `plasma-workspace/kcms/region_language/kcmregionandlang.cpp:275-278` |
 | UPD.3 | Pause updates (1–5 weeks) | stop Discover's notifier from nagging: `PlasmaDiscoverUpdates [Global] RequiredNotificationInterval (Int s)` | PARTIAL · SRC `discover/kcm/updatessettings.kcfg` |
 | UPD.4 | Update history: Quality / Driver / Definition / Other updates | packages: `/var/log/apt/history.log` (Ubuntu); firmware: `fwupdmgr get-history`; Flatpak: `flatpak history` | CLI (fwupd, flatpak) · apt log UNVERIFIED |
 | UPD.4a | Uninstall updates; Recovery | — | N/A — hide |
@@ -701,23 +701,25 @@ Sources: PackageKit (distro), Flatpak, fwupd (firmware = Win "driver/optional up
 
 ## Summary
 
+Updated after Phase 1: rows the section agents verified from source or real output were re-tagged.
+
 Primary status per row (a row tagged "APP · SRC" counts as APP; anything with a remaining UNVERIFIED part in its
 first clause counts as UNVERIFIED). Rows marked (extra) are Plasma features with no Win11 row; they are counted too.
 
 | Section | Rows | APP | SRC | CLI | PARTIAL | UNVERIFIED | N/A (hide / disabled) |
 |---|---|---|---|---|---|---|---|
-| 1. System | 139 | 23 | 54 | 6 | 12 | 8 | 36 |
-| 2. Bluetooth & devices | 56 | 2 | 26 | 4 | 4 | 7 | 13 |
-| 3. Network & internet | 38 | 5 | 10 | 6 | 2 | 2 | 13 |
-| 4. Personalization | 57 | 4 | 23 | 1 | 6 | 4 | 19 |
+| 1. System | 139 | 23 | 53 | 7 | 12 | 7 | 37 |
+| 2. Bluetooth & devices | 56 | 2 | 29 | 4 | 4 | 5 | 12 |
+| 3. Network & internet | 38 | 5 | 12 | 7 | 2 | 1 | 11 |
+| 4. Personalization | 57 | 4 | 25 | 1 | 6 | 4 | 17 |
 | 5. Apps | 12 | 0 | 4 | 4 | 1 | 0 | 3 |
-| 6. Accounts | 20 | 1 | 8 | 2 | 0 | 1 | 8 |
-| 7. Time & language | 29 | 2 | 14 | 2 | 3 | 3 | 5 |
+| 6. Accounts | 20 | 1 | 10 | 1 | 0 | 1 | 7 |
+| 7. Time & language | 29 | 2 | 16 | 3 | 3 | 2 | 3 |
 | 8. Gaming | 7 | 0 | 3 | 0 | 0 | 1 | 3 |
 | 9. Accessibility | 34 | 1 | 22 | 0 | 3 | 1 | 7 |
-| 10. Privacy & security | 21 | 0 | 9 | 4 | 5 | 0 | 3 |
+| 10. Privacy & security | 21 | 0 | 10 | 3 | 5 | 0 | 3 |
 | 11. System updates (Windows Update) | 14 | 0 | 3 | 3 | 1 | 1 | 6 |
-| **Total** | **427** | **38** | **176** | **32** | **37** | **28** | **116** |
+| **Total** | **427** | **38** | **187** | **33** | **37** | **23** | **109** |
 
 **Hand-offs that remain by design** (no verified non-KCM way): Online accounts (ACC.EML.1), printer properties
 dialog (BT.PRN.3c, `configure-printer`). Everything else is either native, partial-native, or hidden/disabled as N/A.
