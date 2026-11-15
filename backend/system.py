@@ -1,5 +1,5 @@
-"""System: display, night light, brightness, sound, power & battery,
-storage, about (device + OS specs, rename PC)."""
+"""System: display, sound, notifications, focus, power & battery, storage,
+nearby sharing, multitasking, clipboard, remote desktop, for developers, about."""
 from __future__ import annotations
 
 import json
@@ -7,15 +7,83 @@ import os
 import re
 import shutil
 import socket
+import time
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Property, QTimer, Signal, Slot
 
-from .util import ANSI, dbus, has, kread, kwin_reconfigure, kwrite, prop, run, spawn
+from .util import ANSI, HOME, dbus, has, kread, kwin_reconfigure, kwrite, prop, run, spawn
 
 SCALES = [1.0, 1.25, 1.5, 1.75, 2.0]
 ROT_TO_INDEX = {1: 0, 2: 1, 4: 2, 8: 3}          # kscreen: none, left, inverted, right
 INDEX_TO_ROT = ["normal", "left", "inverted", "right"]
+VRR_NAMES = ["never", "automatic", "always"]       # combo order
+VRR_FROM_ENUM = {0: 0, 2: 1, 1: 2}                 # libkscreen enum -> combo index
+
+
+def _sys_unescape(v: str) -> str:
+    return (v.replace("\\s", " ").replace("\\t", "\t").replace("\\n", "\n")
+             .replace("\\r", "\r").replace("\\\\", "\\"))
+
+
+def sys_parse_ini(path: Path) -> dict:
+    """Tiny KConfig reader: {"Group" or "A/B": {key: value}} (locale keys dropped)."""
+    out: dict = {}
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return out
+    group = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            group = "/".join(re.findall(r"\[([^\]]*)\]", line))
+            out.setdefault(group, {})
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            k = k.strip()
+            if "[" in k:
+                if re.search(r"\[\$[a-z]+\]$", k):
+                    k = k[:k.index("[")]
+                else:
+                    continue            # localized key
+            out.setdefault(group, {})[k] = _sys_unescape(v.strip())
+    return out
+
+
+def sys_find_key(obj, key):
+    """Find `key` in nested busctl --json output; unwrap {"type","data"} variants."""
+    if isinstance(obj, dict):
+        if key in obj:
+            v = obj[key]
+            return v["data"] if isinstance(v, dict) and "data" in v else v
+        for v in obj.values():
+            r = sys_find_key(v, key)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = sys_find_key(v, key)
+            if r is not None:
+                return r
+    return None
+
+
+def sys_strings(obj) -> list:
+    if isinstance(obj, str):
+        return [obj]
+    out: list = []
+    if isinstance(obj, list):
+        for v in obj:
+            out += sys_strings(v)
+    elif isinstance(obj, dict):
+        if "data" in obj:
+            return sys_strings(obj["data"])
+    return out
 
 
 class SystemMixin:
@@ -26,13 +94,19 @@ class SystemMixin:
     brightnessChanged = Signal()
     soundChanged = Signal()
     powerChanged = Signal()
+    sysCfgChanged = Signal()
+    sysNightChanged = Signal()
 
     def _init_system(self):
-        self._night = kread("kwinrc", "NightColor", "Active", "false") == "true"
+        self._sys_ini_cache: dict = {}
+        self._sys_over: dict = {}
+        self._sys_cfg_rev = 0
+        self._night = self.sysCfg("kwinrc", "NightColor", "Active", "false") == "true"
         self._plasma_version = ""
         self._raw_outputs: dict[str, dict] = {}
-        self._outputs = self._read_outputs()
-        self._bright, self._bright_max = self._read_brightness()
+        self._outputs: list = []
+        self._bright, self._bright_max = -1, 0
+        self._sys_displays: list = []
         self._bright_timer = QTimer(self, singleShot=True, interval=60)
         self._bright_timer.timeout.connect(self._apply_brightness)
         self._sinks, self._sources = [], []
@@ -41,33 +115,201 @@ class SystemMixin:
         self._out_mute = self._in_mute = False
         self._bat_present, self._bat_pct, self._bat_status = False, 0, ""
         self._profiles, self._profile_idx = [], -1
+        self._sys_night_status = ""
         self._async(["plasmashell", "--version"], self._on_plasma_version)
+        QTimer.singleShot(0, self.reloadOutputs)
+        QTimer.singleShot(0, self.sysRefreshBrightness)
 
     nightLight = prop("night", bool, nightLightChanged)
     plasmaVersion = prop("plasma_version", str, aboutChanged)
     outputs = prop("outputs", "QVariantList", outputsChanged)
+    sysNightStatus = prop("sys_night_status", str, sysNightChanged)
+    sysDisplays = prop("sys_displays", "QVariantList", brightnessChanged)
 
     def _on_plasma_version(self, ok: bool, out: str):
         self._plasma_version = out.split()[-1] if ok and out.split() else ""
         self.aboutChanged.emit()
 
+    # ---------------------------------------------------- generic KConfig access
+    # QML pattern:  checked: { Backend.sysCfgRev; return Backend.sysCfg(f, g, k, d) === "true" }
+    @Property(int, notify=sysCfgChanged)
+    def sysCfgRev(self):
+        return self._sys_cfg_rev
+
+    def _sys_bump(self):
+        self._sys_cfg_rev += 1
+        self.sysCfgChanged.emit()
+
+    def _sys_conf_dirs(self) -> list:
+        dirs = [Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")]
+        dirs += [Path(d) for d in (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(":") if d]
+        return dirs
+
+    def _sys_ini(self, file: str) -> dict:
+        merged: dict = {}
+        for d in reversed(self._sys_conf_dirs()):          # user file wins
+            p = d / file
+            try:
+                mt = p.stat().st_mtime_ns
+            except OSError:
+                continue
+            hit = self._sys_ini_cache.get(str(p))
+            if not hit or hit[0] != mt:
+                hit = (mt, sys_parse_ini(p))
+                self._sys_ini_cache[str(p)] = hit
+            for g, kv in hit[1].items():
+                merged.setdefault(g, {}).update(kv)
+        return merged
+
+    @Slot(str, str, str, str, result=str)
+    def sysCfg(self, file: str, group: str, key: str, default: str = "") -> str:
+        k = (file, group, key)
+        if k in self._sys_over:
+            v = self._sys_over[k]
+            return default if v is None else v
+        return self._sys_ini(file).get(group, {}).get(key, default)
+
+    @Slot(str, str, str, str, str, bool)
+    def sysCfgSet(self, file: str, group: str, key: str, value: str, kind: str = "",
+                  reconfigure: bool = False):
+        k = (file, group, key)
+        self._sys_over[k] = value
+        self._sys_bump()
+        args = ["kwriteconfig6", "--file", file]
+        for g in group.split("/"):
+            args += ["--group", g]
+        args += ["--key", key]
+        if kind:
+            args += ["--type", kind]
+        args += ["--notify", value]
+
+        def done(ok, _out):
+            if self._sys_over.get(k) == value:
+                self._sys_over.pop(k, None)
+            if reconfigure:
+                kwin_reconfigure()
+            self._sys_bump()
+        self._async(args, done)
+
+    @Slot(str, str, str)
+    def sysCfgDel(self, file: str, group: str, key: str):
+        k = (file, group, key)
+        self._sys_over[k] = None
+        self._sys_bump()
+        args = ["kwriteconfig6", "--file", file]
+        for g in group.split("/"):
+            args += ["--group", g]
+        args += ["--key", key, "--delete", "--notify"]
+
+        def done(ok, _out):
+            if k in self._sys_over and self._sys_over[k] is None:
+                self._sys_over.pop(k, None)
+            self._sys_bump()
+        self._async(args, done)
+
+    @Slot()
+    def sysCfgReload(self):
+        self._sys_over.clear()
+        self._sys_ini_cache.clear()
+        self._sys_bump()
+
+    @Slot()
+    def sysKwinReconfigure(self):
+        kwin_reconfigure()
+
+    @Slot("QVariantList")
+    def sysLaunch(self, args):
+        spawn([str(a) for a in args])
+
+    # ---------------------------------------------------- Night light
     @Slot(bool)
     def setNightLight(self, on: bool):
         self._night = on
         self.nightLightChanged.emit()
-        kwrite("kwinrc", "NightColor", "Active", "true" if on else "false", "bool")
-        kwin_reconfigure()
+        self.sysCfgSet("kwinrc", "NightColor", "Active", "true" if on else "false", "bool", True)
+        QTimer.singleShot(600, self.sysRefreshNightLight)
+
+    @Slot(bool)
+    def sysNightTurnOn(self, on: bool):
+        """Win11 'Turn on now' / 'Turn off now' = constant mode on/off."""
+        self._night = on
+        self.nightLightChanged.emit()
+        if on:
+            self.sysCfgSet("kwinrc", "NightColor", "Mode", "Constant", "")
+        self.sysCfgSet("kwinrc", "NightColor", "Active", "true" if on else "false", "bool", True)
+        QTimer.singleShot(600, self.sysRefreshNightLight)
+
+    @Slot(bool)
+    def sysNightSchedule(self, on: bool):
+        self.sysCfgSet("kwinrc", "NightColor", "Mode", "DarkLight" if on else "Constant", "", True)
+        QTimer.singleShot(600, self.sysRefreshNightLight)
+
+    @Slot(int)
+    def sysNightPreview(self, kelvin: int):
+        self._later("sysnl", ["dbus-send", "--session", "--dest=org.kde.KWin", "--type=method_call",
+                              "/org/kde/KWin/NightLight", "org.kde.KWin.NightLight.preview",
+                              f"uint32:{int(kelvin)}"])
+
+    @Slot(int)
+    def sysNightCommit(self, kelvin: int):
+        self.sysCfgSet("kwinrc", "NightColor", "NightTemperature", str(int(kelvin)), "", True)
+        dbus("org.kde.KWin", "/org/kde/KWin/NightLight", "org.kde.KWin.NightLight.stopPreview")
+        QTimer.singleShot(600, self.sysRefreshNightLight)
+
+    @Slot()
+    def sysRefreshNightLight(self):
+        self._night = self.sysCfg("kwinrc", "NightColor", "Active", "false") == "true"
+        self.nightLightChanged.emit()
+        props = ["running", "daylight", "currentTemperature", "scheduledTransitionDateTime"]
+
+        def done(ok, out):
+            vals = [ln.split()[-1] for ln in out.splitlines() if ln.strip()]
+            if not ok or len(vals) < 4:
+                self._sys_night_status = ""
+            else:
+                running, daylight = vals[0] == "true", vals[1] == "true"
+                try:
+                    ts = int(vals[3])
+                except ValueError:
+                    ts = 0
+                when = ""
+                if ts > 0:
+                    when = datetime.fromtimestamp(ts if ts < 10**11 else ts / 1000).strftime("%I:%M %p").lstrip("0")
+                if not self._night:
+                    self._sys_night_status = "Night light is off"
+                elif running and when:
+                    self._sys_night_status = f"Night light is on and will turn off at {when}" if not daylight \
+                        else f"Night light will turn on at {when}"
+                elif running:
+                    self._sys_night_status = "Night light is on"
+                elif when:
+                    self._sys_night_status = f"Night light will turn on at {when}"
+                else:
+                    self._sys_night_status = "Night light is on"
+            self.sysNightChanged.emit()
+        self._async(["busctl", "--user", "get-property", "org.kde.KWin", "/org/kde/KWin/NightLight",
+                     "org.kde.KWin.NightLight", *props], done)
 
     # ---------------------------------------------------- Display (kscreen-doctor)
-    def _read_outputs(self) -> list:
-        raw = run(["kscreen-doctor", "-j"])
-        if not raw:
-            return []
+    @Slot()
+    def reloadOutputs(self):
+        def got_json(ok, raw):
+            if not ok or not raw.strip():
+                self._outputs, self._raw_outputs = [], {}
+                self.outputsChanged.emit()
+                return
+            self._async(["kscreen-doctor", "-o"], lambda ok2, txt: self._sys_on_outputs(raw, ANSI.sub("", txt)))
+        self._async(["kscreen-doctor", "-j"], got_json, 8000)
+
+    def _sys_on_outputs(self, raw: str, text: str):
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            return []
-        text = ANSI.sub("", run(["kscreen-doctor", "-o"]))
+            return
+        self._outputs = self._build_outputs(data, text)
+        self.outputsChanged.emit()
+
+    def _build_outputs(self, data: dict, text: str) -> list:
         connected = [o for o in data.get("outputs", []) if o.get("connected")]
         connected.sort(key=lambda o: o.get("priority") or 99)
 
@@ -93,16 +335,24 @@ class SystemMixin:
             lw, lh = (ch, cw) if rot in (2, 8) else (cw, ch)
             pos = o.get("pos") or {}
             res_keys = [f"{w}x{h}" for w, h in sizes]
+            block = self._sys_out_block(text, name)
             hdr = self._hdr_state(text, name)
+            near = min(range(len(SCALES)), key=lambda i: abs(SCALES[i] - scale))
             self._raw_outputs[name] = {"modes": modes, "size": (cw, ch), "rate": cur_rate}
+            abm = re.search(r"Adaptive backlight modulation:\s*supported, set to (\d)", block)
+            tradeoff = re.search(r"Color power preference:\s*(prefer accuracy|prefer efficiency)", block)
+            src = re.search(r"Color profile source:\s*(\w+)", block)
             outs.append({
                 "name": name,
                 "label": str(n),
+                "title": f"Display {n}",
                 "enabled": bool(o.get("enabled")),
                 "x": pos.get("x", 0), "y": pos.get("y", 0),
                 "w": max(lw / scale, 1), "h": max(lh / scale, 1),
                 "scale": scale,
-                "scaleIndex": min(range(len(SCALES)), key=lambda i: abs(SCALES[i] - scale)),
+                "scaleIndex": near,
+                "scaleCustom": abs(SCALES[near] - scale) > 0.001,
+                "scalePercent": round(scale * 100),
                 "rotationIndex": ROT_TO_INDEX.get(rot, 0),
                 "resolutions": [f"{w} × {h}" + ("  (Recommended)" if (w, h) in pref_sizes else "")
                                 for w, h in sizes],
@@ -111,10 +361,36 @@ class SystemMixin:
                 "rates": [f"{r:g} Hz" for r in rates],
                 "rateValues": rates,
                 "rateIndex": rates.index(cur_rate) if cur_rate in rates else 0,
-                "hdrSupported": hdr in ("enabled", "disabled"),
-                "hdr": hdr == "enabled",
+                "curW": cw, "curH": ch, "curRate": cur_rate,
+                "hdrSupported": hdr in ("enabled", "disabled") or "hdr" in o,
+                "hdr": bool(o.get("hdr")) if "hdr" in o else hdr == "enabled",
+                "sdrSupported": "sdr-brightness" in o,
+                "sdrBrightness": int(o.get("sdr-brightness") or 200),
+                "wcgSupported": "wcg" in o,
+                "wcg": bool(o.get("wcg")),
+                "vrrSupported": "vrrPolicy" in o,
+                "vrrIndex": VRR_FROM_ENUM.get(int(o.get("vrrPolicy", 0)), 0),
+                "rgbSupported": "rgbRange" in o,
+                "rgbIndex": int(o.get("rgbRange", 0)),
+                "bpcSupported": "maxBpc" in o,
+                "maxBpc": int(o.get("maxBpc", 0)),
+                "iccSupported": "iccProfilePath" in o,
+                "iccPath": o.get("iccProfilePath") or "",
+                "colorSource": src.group(1) if src else "",
+                "tradeoff": "accuracy" if tradeoff and tradeoff.group(1) == "prefer accuracy"
+                            else ("efficiency" if tradeoff else ""),
+                "abmSupported": bool(abm),
+                "abm": int(abm.group(1)) if abm else 0,
+                "priority": int(o.get("priority") or 0),
+                "isMain": int(o.get("priority") or 0) == 1,
+                "replicated": int(o.get("replicationSource") or 0) != 0,
             })
         return outs
+
+    @staticmethod
+    def _sys_out_block(text: str, name: str) -> str:
+        m = re.search(rf"Output:\s*\d+\s+{re.escape(name)}\b(.*?)(?=\nOutput:|\Z)", text, re.S)
+        return m.group(1) if m else ""
 
     @staticmethod
     def _hdr_state(text: str, name: str) -> str:
@@ -124,90 +400,115 @@ class SystemMixin:
         h = re.search(r"HDR:\s*(\w+)", m.group(1))
         return h.group(1).lower() if h else ""
 
-    def _read_brightness(self):
+    # ---------------------------------------------------- Brightness
+    @Slot()
+    def sysRefreshBrightness(self):
+        """Per-display brightness (internal + DDC/CI) from org.kde.ScreenBrightness;
+        falls back to the PowerDevil internal-panel interface."""
+        svc = "org.kde.ScreenBrightness"
+
+        def names_done(ok, out):
+            names: list = []
+            if ok:
+                try:
+                    names = sys_strings(json.loads(out))
+                except json.JSONDecodeError:
+                    names = []
+            if not names:
+                self._sys_displays = []
+                self._sys_legacy_brightness()
+                return
+            pending = {"n": len(names), "items": []}
+
+            def one(nm):
+                def got(ok2, out2):
+                    pending["n"] -= 1
+                    if ok2:
+                        try:
+                            j = json.loads(out2)
+                            mx = sys_find_key(j, "MaxBrightness")
+                            cur = sys_find_key(j, "Brightness")
+                            if isinstance(mx, int) and mx > 0 and isinstance(cur, int):
+                                pending["items"].append({
+                                    "path": f"/org/kde/ScreenBrightness/{nm}",
+                                    "label": str(sys_find_key(j, "Label") or nm),
+                                    "internal": bool(sys_find_key(j, "IsInternal")),
+                                    "max": mx, "value": round(cur * 100 / mx)})
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    if pending["n"] == 0:
+                        self._sys_displays = sorted(pending["items"], key=lambda d: not d["internal"])
+                        self.brightnessChanged.emit()
+                        if not self._sys_displays:
+                            self._sys_legacy_brightness()
+                return got
+            for nm in names:
+                self._async(["busctl", "--user", "--json=short", "call", svc,
+                             f"/org/kde/ScreenBrightness/{nm}", "org.freedesktop.DBus.Properties",
+                             "GetAll", "s", "org.kde.ScreenBrightness.Display"], one(nm))
+        self._async(["busctl", "--user", "--json=short", "get-property", svc, "/org/kde/ScreenBrightness",
+                     svc, "DisplaysDBusNames"], names_done)
+
+    def _sys_legacy_brightness(self):
         svc = "org.kde.Solid.PowerManagement"
         path = "/org/kde/Solid/PowerManagement/Actions/BrightnessControl"
         iface = "org.kde.Solid.PowerManagement.Actions.BrightnessControl"
-        cur = re.search(r"int32\s+(-?\d+)", dbus(svc, path, iface + ".brightness", reply=True) or "")
-        mx = re.search(r"int32\s+(-?\d+)", dbus(svc, path, iface + ".brightnessMax", reply=True) or "")
-        if cur and mx and int(mx.group(1)) > 0:
-            return int(cur.group(1)), int(mx.group(1))
-        return -1, 0
 
-    @Property(str, notify=hostChanged)
-    def hostname(self):
-        return socket.gethostname()
+        def cur_done(ok, out):
+            m = re.search(r"int32\s+(-?\d+)", out)
 
-    @Property(str, constant=True)
-    def deviceModel(self):
-        def rd(n):
-            try:
-                return Path(f"/sys/class/dmi/id/{n}").read_text().strip()
-            except OSError:
-                return ""
-        junk = {"", "to be filled by o.e.m.", "system product name", "default string"}
-        parts = [p for p in (rd("sys_vendor"), rd("product_name")) if p.lower() not in junk]
-        return " ".join(parts)
+            def max_done(ok2, out2):
+                mx = re.search(r"int32\s+(-?\d+)", out2)
+                if m and mx and int(mx.group(1)) > 0:
+                    self._bright, self._bright_max = int(m.group(1)), int(mx.group(1))
+                self.brightnessChanged.emit()
+            self._async(["dbus-send", "--session", f"--dest={svc}", "--print-reply", path,
+                         iface + ".brightnessMax"], max_done)
+        self._async(["dbus-send", "--session", f"--dest={svc}", "--print-reply", path,
+                     iface + ".brightness"], cur_done)
 
-
-
-
-    @Property(str, constant=True)
-    def osName(self):
-        try:
-            for line in Path("/etc/os-release").read_text().splitlines():
-                if line.startswith("PRETTY_NAME="):
-                    return line.split("=", 1)[1].strip().strip('"')
-        except OSError:
-            pass
-        return "Linux"
-
-    @Property(str, constant=True)
-    def kernel(self):
-        return os.uname().release
-    @Property(int, notify=outputsChanged)
-    def displayModeIndex(self):
-        enabled = [i for i, o in enumerate(self._outputs) if o["enabled"]]
-        if len(self._outputs) > 1 and len(enabled) == 1:
-            return enabled[0] + 1
-        return 0
+    @Slot(str, int)
+    def sysSetDisplayBrightness(self, path: str, percent: int):
+        for d in self._sys_displays:
+            if d["path"] == path:
+                d["value"] = percent
+                self.brightnessChanged.emit()
+                self._later("sysbr" + path, [
+                    "busctl", "--user", "call", "org.kde.ScreenBrightness", path,
+                    "org.kde.ScreenBrightness.Display", "SetBrightness", "iu",
+                    str(round(percent * d["max"] / 100)), "0"])
+                return
 
     @Property(bool, notify=brightnessChanged)
     def brightnessAvailable(self):
-        return self._bright_max > 0
+        return self._bright_max > 0 or bool(self._sys_displays)
 
     @Property(int, notify=brightnessChanged)
     def brightness(self):
+        if self._sys_displays:
+            return self._sys_displays[0]["value"]
         return round(self._bright * 100 / self._bright_max) if self._bright_max else 0
 
-    @Property(float, constant=True)
-    def storageRatio(self):
-        u = shutil.disk_usage("/")
-        return u.used / u.total if u.total else 0.0
-
-    @Property(str, constant=True)
-    def storageText(self):
-        u = shutil.disk_usage("/")
-        gb = 1024 ** 3
-        return f"{u.used / gb:.0f} GB used of {u.total / gb:.0f} GB"
-
-    # ---------------------------------------------------- rename PC
-    @Slot(str)
-    def renameHost(self, name: str):
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,62}", name):
+    @Slot(int)
+    def setBrightness(self, percent: int):
+        if self._sys_displays:
+            self.sysSetDisplayBrightness(self._sys_displays[0]["path"], percent)
             return
-        self._async(["pkexec", "hostnamectl", "set-hostname", name],
-                    lambda *_: self.hostChanged.emit(), timeout_ms=120000)
+        if not self._bright_max:
+            return
+        self._bright = round(percent * self._bright_max / 100)
+        self.brightnessChanged.emit()
+        self._bright_timer.start()
 
+    def _apply_brightness(self):
+        dbus("org.kde.Solid.PowerManagement",
+             "/org/kde/Solid/PowerManagement/Actions/BrightnessControl",
+             "org.kde.Solid.PowerManagement.Actions.BrightnessControl.setBrightness",
+             f"int32:{self._bright}")
 
     # ---------------------------------------------------- display slots
     def _kscreen(self, *ops: str):
         self._async(["kscreen-doctor", *ops], lambda *_: self.reloadOutputs())
-
-    @Slot()
-    def reloadOutputs(self):
-        self._outputs = self._read_outputs()
-        self.outputsChanged.emit()
 
     def _mode_id(self, name: str, size: tuple, rate: float | None):
         raw = self._raw_outputs.get(name)
@@ -247,34 +548,143 @@ class SystemMixin:
     def setHdr(self, name: str, on: bool):
         self._kscreen(f"output.{name}.hdr.{'enable' if on else 'disable'}")
 
+    @Slot(str, bool)
+    def sysSetWcg(self, name: str, on: bool):
+        self._kscreen(f"output.{name}.wcg.{'enable' if on else 'disable'}")
+
+    @Slot(str, int)
+    def sysSetSdrBrightness(self, name: str, nits: int):
+        self._kscreen(f"output.{name}.sdr-brightness.{max(50, min(10000, nits))}")
+
+    @Slot(str, int)
+    def sysSetVrr(self, name: str, index: int):
+        self._kscreen(f"output.{name}.vrrpolicy.{VRR_NAMES[index]}")
+
+    @Slot(str, int)
+    def sysSetRgbRange(self, name: str, index: int):
+        self._kscreen(f"output.{name}.rgbrange.{['automatic', 'full', 'limited'][index]}")
+
+    @Slot(str, int)
+    def sysSetMaxBpc(self, name: str, bpc: int):
+        self._kscreen(f"output.{name}.maxbpc.{'automatic' if bpc == 0 else bpc}")
+
+    @Slot(str, int)
+    def sysSetAbm(self, name: str, level: int):
+        self._kscreen(f"output.{name}.abm.{level}")
+
+    @Slot(str, bool)
+    def sysSetColorAccuracy(self, name: str, accurate: bool):
+        self._kscreen(f"output.{name}.colorPowerTradeoff.{'preferAccuracy' if accurate else 'preferEfficiency'}")
+
+    @Slot(str)
+    def sysSetMainDisplay(self, name: str):
+        self._kscreen(f"output.{name}.priority.1")
+
+    @Slot(str, int, int)
+    def sysSetOutputPosition(self, name: str, x: int, y: int):
+        self._kscreen(f"output.{name}.position.{x},{y}")
+
+    @Slot(str, str)
+    def sysSetColorProfile(self, name: str, path: str):
+        """path '' = standard sRGB, 'edid' = display's own profile, else an ICC file."""
+        if path == "":
+            self._kscreen(f"output.{name}.colorProfileSource.sRGB")
+        elif path == "edid":
+            self._kscreen(f"output.{name}.colorProfileSource.EDID")
+        else:
+            self._kscreen(f"output.{name}.iccprofile.{path}", f"output.{name}.colorProfileSource.ICC")
+
+    @Slot(result="QVariantList")
+    def sysIccProfiles(self):
+        """ICC files from the standard colour-profile directories."""
+        dirs = [HOME / ".local/share/icc", HOME / ".local/share/color/icc",
+                Path("/usr/share/color/icc"), Path("/usr/local/share/color/icc")]
+        found = []
+        for d in dirs:
+            if d.is_dir():
+                for p in sorted(d.rglob("*")):
+                    if p.suffix.lower() in (".icc", ".icm"):
+                        found.append({"name": p.stem, "path": str(p)})
+        return found
+
+    @Property(int, notify=outputsChanged)
+    def displayModeIndex(self):
+        enabled = [i for i, o in enumerate(self._outputs) if o["enabled"]]
+        if len(self._outputs) > 1 and len(enabled) == 1:
+            return enabled[0] + 2
+        if any(o["replicated"] for o in self._outputs):
+            return 1
+        return 0
+
     @Slot(int)
     def setDisplayMode(self, index: int):
         names = [o["name"] for o in self._outputs]
+        if not names:
+            return
         if index == 0:
-            self._kscreen(*[f"output.{n}.enable" for n in names])
-        elif 0 < index <= len(names):
-            keep = names[index - 1]
-            self._kscreen(f"output.{keep}.enable",
+            self._kscreen(*[f"output.{n}.enable" for n in names],
+                          *[f"output.{n}.mirror.none" for n in names])
+        elif index == 1:
+            main = names[0]
+            self._kscreen(*[f"output.{n}.enable" for n in names],
+                          *[f"output.{n}.mirror.{main}" for n in names[1:]])
+        elif index - 2 < len(names):
+            keep = names[index - 2]
+            self._kscreen(f"output.{keep}.enable", f"output.{keep}.mirror.none",
                           *[f"output.{n}.disable" for n in names if n != keep])
 
     @Slot()
     def identifyDisplays(self):
-        dbus("org.kde.kscreen.osdService", "/org/kde/kscreen/osdService",
-             "org.kde.kscreen.osdService.showOutputIdentifier")
+        dbus("org.kde.KWin", "/org/kde/KWin/Effect/OutputLocator1",
+             "org.kde.KWin.Effect.OutputLocator1.show")
 
-    @Slot(int)
-    def setBrightness(self, percent: int):
-        if not self._bright_max:
+    # ---------------------------------------------------- misc device facts (used by Home/About)
+    @Property(str, notify=hostChanged)
+    def hostname(self):
+        return socket.gethostname()
+
+    @Property(str, constant=True)
+    def deviceModel(self):
+        def rd(n):
+            try:
+                return Path(f"/sys/class/dmi/id/{n}").read_text().strip()
+            except OSError:
+                return ""
+        junk = {"", "to be filled by o.e.m.", "system product name", "default string"}
+        parts = [p for p in (rd("sys_vendor"), rd("product_name")) if p.lower() not in junk]
+        return " ".join(parts)
+
+    @Property(str, constant=True)
+    def osName(self):
+        try:
+            for line in Path("/etc/os-release").read_text().splitlines():
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"')
+        except OSError:
+            pass
+        return "Linux"
+
+    @Property(str, constant=True)
+    def kernel(self):
+        return os.uname().release
+
+    @Property(float, constant=True)
+    def storageRatio(self):
+        u = shutil.disk_usage("/")
+        return u.used / u.total if u.total else 0.0
+
+    @Property(str, constant=True)
+    def storageText(self):
+        u = shutil.disk_usage("/")
+        gb = 1024 ** 3
+        return f"{u.used / gb:.0f} GB used of {u.total / gb:.0f} GB"
+
+    @Slot(str)
+    def renameHost(self, name: str):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,62}", name):
             return
-        self._bright = round(percent * self._bright_max / 100)
-        self.brightnessChanged.emit()
-        self._bright_timer.start()
-
-    def _apply_brightness(self):
-        dbus("org.kde.Solid.PowerManagement",
-             "/org/kde/Solid/PowerManagement/Actions/BrightnessControl",
-             "org.kde.Solid.PowerManagement.Actions.BrightnessControl.setBrightness",
-             f"int32:{self._bright}")
+        self._async(["pkexec", "hostnamectl", "set-hostname", name],
+                    lambda *_: self.hostChanged.emit(), timeout_ms=120000)
 
     # ---------------------------------------------------- Sound (PipeWire/Pulse via pactl)
     @Slot()
