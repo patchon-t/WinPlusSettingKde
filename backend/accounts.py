@@ -20,7 +20,11 @@ import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Property, QProcess, QUrl, Signal, Slot
-from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusPendingCallWatcher
+try:  # Kubuntu ships QtDBus separately (python3-pyside6.qtdbus); without it only password change is disabled
+    from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusPendingCallWatcher
+    _ACC_QTDBUS = True
+except ImportError:
+    _ACC_QTDBUS = False
 from PySide6.QtGui import QImage
 
 from .util import HOME, file_url, has, kread, kwrite, prop
@@ -111,7 +115,7 @@ class AccountsMixin:
         self._acc_others = []
         self._acc_loading = False
         self._acc_watchers = []
-        self._acc_hash_ok = _acc_crypt_lib() is not None
+        self._acc_hash_ok = _ACC_QTDBUS and _acc_crypt_lib() is not None
         # sign-in
         self._acc_away = 0
         self._acc_away_labels = list(ACC_AWAY_LABELS)
@@ -295,6 +299,9 @@ class AccountsMixin:
 
     # ---------------------------------------------------- Password (SetPassword via QtDBus)
     def _acc_set_password(self, path: str, plain: str, hint: str, callback):
+        if not _ACC_QTDBUS:
+            callback(False)
+            return
         crypted = _acc_hash_password(plain)
         if not crypted:
             return callback(False)
