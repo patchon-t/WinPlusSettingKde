@@ -1,6 +1,8 @@
 """image://icon provider: bundled Fluent SVGs (fl:...) + system icon theme."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtQuick import QQuickImageProvider
@@ -51,6 +53,8 @@ class IconProvider(QQuickImageProvider):
         for name in names.split("|"):
             if name.startswith("fl:"):
                 icon = self._fluent(name[3:], dark)
+            elif name.startswith("/"):            # .desktop Icon=/absolute/path.png
+                icon = QIcon(name) if Path(name).is_file() else QIcon()
             else:
                 QIcon.setThemeName(self._b.icon_theme(dark))
                 icon = QIcon.fromTheme(name)
