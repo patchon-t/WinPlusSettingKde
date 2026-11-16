@@ -7,6 +7,8 @@ import "../.."
 // Apps > Installed apps  (APP.INS.1 / APP.INS.2 / APP.INS.4)
 Item {
     id: page
+    property bool headerVisible: true      // Main.qml hides it at once when the page leaves
+    StackView.onActivating: headerVisible = true
     readonly property int sidePadding: 28
     readonly property int maxContentWidth: 1000
     property string toastText: ""
@@ -34,6 +36,7 @@ Item {
 
     PageHeader {
         id: pageHeader
+        visible: page.headerVisible
         crumbs: ["Apps", "Installed apps"]
         x: page.sidePadding
         y: 4

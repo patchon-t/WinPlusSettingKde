@@ -63,8 +63,9 @@ QtObject {
     readonly property int durFast: 167       // toggles, small moves, exits
     readonly property int durNormal: 250     // dialogs, flyouts
     readonly property int durSlow: 333       // drill-in, expanders
-    readonly property int durPage: 400       // nav section entrance
-    readonly property int entranceOffset: 100  // px the new section slides up from
+    readonly property int drillOffset: 30    // px old content slides left when drilling in
+    readonly property int durPage: 300       // nav section entrance (measured from Win11)
+    readonly property int entranceOffset: 60   // px the new section content slides up from
     readonly property var decelerate: [0, 0, 0, 1, 1, 1]     // "fast out, slow in" (entering)
     readonly property var accelerate: [1, 0, 1, 1, 1, 1]     // exiting
     readonly property var standard: [0.8, 0, 0.2, 1, 1, 1]   // moving on screen
