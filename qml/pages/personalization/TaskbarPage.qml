@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import WinSettings
 import "../.."
@@ -38,12 +39,100 @@ SettingsPage {
     // ---------------------------------------------------------- taskbar items
     SectionHeader { text: "Taskbar items"; Layout.topMargin: 0 }
 
-    SettingsCard {
-        icon: "fl:window_apps_20_regular"
+    // Search = the Search Pill widget (github.com/patchon-t/SearchPillKDEWidget,
+    // plugin com.techbypatch.searchpill); settings are its own config keys.
+    component PillSlider: RowLayout {
+        id: psl
+        property string key
+        property int from: 0
+        property int to: 100
+        property string unit: ""
+        spacing: 12
+        FText {
+            text: psl.unit.length ? Math.round(sl.value) + " " + psl.unit : Math.round(sl.value)
+            color: Theme.textSecondary
+            Layout.preferredWidth: 64
+            horizontalAlignment: Text.AlignRight
+        }
+        FluentSlider {
+            id: sl
+            from: psl.from; to: psl.to; stepSize: 1
+            value: Backend.plasmaState["pill_" + psl.key] || 0
+            onMoved: Backend.setSearchPillOption(psl.key, Math.round(value))
+        }
+    }
+
+    ExpanderCard {
+        icon: "fl:search_20_regular"
         title: "Search"
-        description: "Not available on Linux"
-        enabled: false
-        FluentCombo { model: ["Hide"]; currentIndex: 0 }
+        description: page.ps.pill ? "Search Pill on your taskbar" : "Add the Search Pill widget to your panel to change these"
+        enabled: !!page.ps.pill
+        ExpanderRow {
+            title: "Type in the search box on the taskbar"
+            description: "Off: the box opens a search window instead"
+            divider: false
+            FluentToggle {
+                checked: !!page.ps.pill_inlineSearch
+                onToggled: (v) => Backend.setSearchPillOption("inlineSearch", v)
+            }
+        }
+        ExpanderRow {
+            title: "Show search icon"
+            FluentToggle {
+                checked: !!page.ps.pill_showIcon
+                onToggled: (v) => Backend.setSearchPillOption("showIcon", v)
+            }
+        }
+        ExpanderRow {
+            title: "Placeholder text"
+            description: "Empty shows \"Search\""
+            TextField {
+                implicitWidth: 200
+                implicitHeight: 32
+                color: Theme.text
+                placeholderText: "Search"
+                placeholderTextColor: Theme.textSecondary
+                font.pixelSize: Theme.fontBody
+                leftPadding: 11
+                selectByMouse: true
+                text: page.ps.pill_placeholderText || ""
+                onEditingFinished: Backend.setSearchPillOption("placeholderText", text)
+                background: Rectangle {
+                    radius: Theme.radius
+                    color: Theme.controlBg
+                    border.color: Theme.controlBorder
+                }
+            }
+        }
+        ExpanderRow {
+            title: "Search box width"
+            PillSlider { key: "pillWidth"; from: 4; to: 60; unit: "units" }
+        }
+        ExpanderRow {
+            title: "Search box height"
+            description: "0 = fit the taskbar"
+            PillSlider { key: "pillHeight"; from: 0; to: 120; unit: "px" }
+        }
+        ExpanderRow {
+            title: "Floating search window"
+            description: "Keep the window away from the taskbar and screen edges"
+            FluentToggle {
+                checked: !!page.ps.pill_floatingPopup
+                onToggled: (v) => Backend.setSearchPillOption("floatingPopup", v)
+            }
+        }
+        ExpanderRow {
+            title: "Search window width"
+            PillSlider { key: "popupWidth"; from: 14; to: 80; unit: "units" }
+        }
+        ExpanderRow {
+            title: "Search window height"
+            PillSlider { key: "popupHeight"; from: 10; to: 80; unit: "units" }
+        }
+        ExpanderRow {
+            title: "Gap from edges"
+            PillSlider { key: "popupGap"; from: 0; to: 64; unit: "px" }
+        }
     }
     SettingsCard {
         icon: "fl:window_apps_20_regular"

@@ -72,6 +72,13 @@ _PER_READ_JS = """
     }
   } catch (e) {}
   try {
+    var sp = _perAllWidget(%PILL%);
+    if (sp) {
+      o.pill = true;
+      %PILLREAD%
+    }
+  } catch (e) {}
+  try {
     var k = _perAllWidget(['org.kde.plasma.kickoff']);
     if (k) {
       o.kickoff = true;
@@ -83,7 +90,20 @@ _PER_READ_JS = """
   } catch (e) {}
   print(JSON.stringify(o));
 })();
-""".replace("%TASK%", _PER_TASKMGR)
+""".replace("%TASK%", _PER_TASKMGR).replace("%PILL%", "['com.techbypatch.searchpill']").replace(
+    "%PILLREAD%", " ".join("o['pill_%s'] = _perRead(sp, ['General'], '%s');" % (k, k) for k in (
+        "pillWidth", "pillHeight", "showIcon", "placeholderText", "inlineSearch",
+        "floatingPopup", "popupWidth", "popupHeight", "popupGap")))
+
+# Search Pill keys -> (type, min, max); from the widget's contents/config/main.xml
+_PER_PILL_KEYS = {
+    "pillWidth": ("int", 4, 60), "pillHeight": ("int", 0, 120), "showIcon": ("bool", 0, 0),
+    "placeholderText": ("str", 0, 0), "inlineSearch": ("bool", 0, 0), "floatingPopup": ("bool", 0, 0),
+    "popupWidth": ("int", 14, 80), "popupHeight": ("int", 10, 80), "popupGap": ("int", 0, 64),
+}
+_PER_PILL_DEFAULTS = {"pillWidth": 12, "pillHeight": 0, "showIcon": True, "placeholderText": "",
+                      "inlineSearch": True, "floatingPopup": True, "popupWidth": 44,
+                      "popupHeight": 32, "popupGap": 12}
 
 _LNF_DIRS = (Path("/usr/share/plasma/look-and-feel"), HOME / ".local/share/plasma/look-and-feel")
 _ICON_DIRS = (Path("/usr/share/icons"), HOME / ".local/share/icons", HOME / ".icons")
@@ -565,7 +585,13 @@ class PersonalizationMixin:
                 "favDisplay": _per_int(o.get("favDisplay"), 0),
                 "appDisplay": _per_int(o.get("appDisplay"), 0),
                 "newApps": _per_bool(o.get("newApps"), True),
+                "pill": bool(o.get("pill")),
             }
+            for k, (kind, _lo, _hi) in _PER_PILL_KEYS.items():
+                raw, dflt = o.get("pill_" + k), _PER_PILL_DEFAULTS[k]
+                self._per_plasma_state["pill_" + k] = (
+                    _per_bool(raw, dflt) if kind == "bool" else _per_int(raw, dflt) if kind == "int"
+                    else (raw if isinstance(raw, str) else dflt))
             self.plasmaStateChanged.emit()
         self._per_script(_PER_READ_JS, done)
 
@@ -636,6 +662,24 @@ class PersonalizationMixin:
         self._per_apply("var t = _perWidget(_perPanel(), %s); if (t) { t.currentConfigGroup = ['General'];"
                         " t.writeConfig('groupingStrategy', %d); t.writeConfig('onlyGroupWhenFull', %s); }"
                         % (_PER_TASKMGR, strategy, "true" if full else "false"))
+
+    @Slot(str, "QVariant")
+    def setSearchPillOption(self, key: str, value):
+        """Write one Search Pill widget setting live (only keys from its main.xml)."""
+        spec = _PER_PILL_KEYS.get(key)
+        if not spec:
+            return
+        kind, lo, hi = spec
+        if kind == "int":
+            v = max(lo, min(hi, int(value)))
+        elif kind == "bool":
+            v = bool(value)
+        else:
+            v = str(value)
+        self._per_pset(**{"pill_" + key: v})
+        self._per_apply("var sp = _perAllWidget(['com.techbypatch.searchpill']); if (sp) {"
+                        " sp.currentConfigGroup = ['General']; sp.writeConfig(%s, %s); }"
+                        % (json.dumps(key), json.dumps(v)))
 
     @Slot(bool)
     def setTaskOnlyCurrentScreen(self, on: bool):
