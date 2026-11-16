@@ -27,6 +27,7 @@ ApplicationWindow {
         if (i === navIndex && stack.depth === 1)
             return
         navIndex = i
+        Router.motion = "nav"
         const n = Data.nav[i]
         if (stack.depth === 0)
             stack.push(Qt.resolvedUrl(n.page), n.props || {}, StackView.Immediate)
@@ -38,8 +39,8 @@ ApplicationWindow {
 
     Connections {
         target: Router
-        function onOpen(page, props) { stack.push(Qt.resolvedUrl(page), props || {}) }
-        function onBack() { if (stack.depth > 1) stack.pop() }
+        function onOpen(page, props) { Router.motion = "push"; stack.push(Qt.resolvedUrl(page), props || {}) }
+        function onBack() { if (stack.depth > 1) { Router.motion = "pop"; stack.pop() } }
         function onOpenNav(index) { win.goTo(index) }
     }
 
@@ -93,38 +94,31 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                // ---- nav section switch: slide up + fade (EntranceNavigationTransition)
-                replaceEnter: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durNormal
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
-                    NumberAnimation { property: "y"; from: Theme.entranceOffset; to: 0; duration: Theme.durPage
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
-                }
+                // Win11 (measured from a screen recording): the header switches instantly;
+                // only the content moves. The new page animates its own content (see
+                // SettingsPage.playEntrance); here the old page just leaves.
+                // ---- nav section switch: old content drops out almost at once
+                replaceEnter: Transition {}
                 replaceExit: Transition {
+                    PropertyAction { property: "headerVisible"; value: false }   // title switches instantly
                     NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
                 }
-                // ---- open sub page: zoom in (DrillInNavigationTransition)
-                pushEnter: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
-                    NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: Theme.durSlow
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
-                }
+                // ---- open sub page: old content slides a little left and fades
+                pushEnter: Transition {}
                 pushExit: Transition {
-                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
-                    NumberAnimation { property: "scale"; from: 1; to: 1.04; duration: Theme.durSlow
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
+                    PropertyAction { property: "headerVisible"; value: false }   // title switches instantly
+                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFast
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.accelerate }
+                    NumberAnimation { property: "x"; from: 0; to: -Theme.drillOffset; duration: Theme.durFast
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.accelerate }
                 }
-                // ---- back: reverse drill
-                popEnter: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
-                    NumberAnimation { property: "scale"; from: 1.06; to: 1; duration: Theme.durSlow
-                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.decelerate }
-                }
+                // ---- back: mirror of drill-in
+                popEnter: Transition {}
                 popExit: Transition {
-                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFaster }
-                    NumberAnimation { property: "scale"; from: 1; to: 0.96; duration: Theme.durFast
+                    PropertyAction { property: "headerVisible"; value: false }   // title switches instantly
+                    NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFast
+                        easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.accelerate }
+                    NumberAnimation { property: "x"; from: 0; to: Theme.drillOffset; duration: Theme.durFast
                         easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.accelerate }
                 }
             }
